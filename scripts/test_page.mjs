@@ -639,7 +639,7 @@ has(styleBlock, '.deck{background:var(--surface);border:1px solid var(--border);
     not(html, needle, 'no "' + needle + '" anywhere (no theme pair, no codename toggle)');
 
   const ftGh = (footerBlock.match(/<a class="ft-link ft-gh"[^>]*>/) || [''])[0];
-  has(ftGh, 'href="https://github.com/BU-CDS/pub-cds-scc"', '.ft-gh anchor points at this page\'s own public repo');
+  has(ftGh, 'href="https://github.com/BU-CDS/cds-scc-pub"', '.ft-gh anchor points at this page\'s own public repo');
   has(ftGh, 'target="_blank"', '.ft-gh anchor opens in a new tab');
   has(ftGh, 'rel="noopener"', '.ft-gh anchor carries rel="noopener"');
   has(ftGh, 'aria-label="GitHub repository"', '.ft-gh anchor carries an aria-label');
