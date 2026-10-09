@@ -2,6 +2,20 @@
 
 All notable changes to the public cluster page.
 
+## 2026-10-09
+
+- **Repo: renamed on GitHub to `BU-CDS/cds-scc-pub`** (2026-10-09,
+  `build_cluster_page.R`, `scripts/test_page.mjs`): `BU-CDS/pub-cds-scc` is
+  now `BU-CDS/cds-scc-pub`; GitHub redirects the old web and git URLs. The
+  footer's GitHub link (`.ft-gh`) names the new repo, and the page test pins
+  the new href. The custom domain (`cluster.cds.bu.edu`, the CNAME `deploy.sh`
+  writes) does not depend on the repo name and is unchanged. Local directories
+  keep their old names: the clone defaults `PUB_GPU_CLONE` / `PUB_CPU_CLONE`
+  (`/usr3/bustaff/mhorn/repos/{gpu,cpu}-cds-scc`) are SCC paths, not GitHub
+  names, and the build reads the sibling clones at those directories, which
+  are not being renamed. The "lifted from cpu-cds-scc/..." provenance
+  comments name those same clones and stay too.
+
 ## 2026-09-02
 
 - **Page: instant tips on the Explorer pills, no Members caption** (2026-09-02,
