@@ -367,7 +367,7 @@ const leakScan = (list, label, category, ...texts2) => {
 for (const [label, text] of texts) {
   const uCode = text.match(/\bu-\d+\b/);
   if (uCode) bad(`${label}: registry code pattern found: ${uCode[0]}`);
-  const sccCode = text.match(/\bscc-[a-z0-9]+\b/i);
+  const sccCode = text.match(/(?<![\w-])scc-[a-z0-9]+\b/i);   // a bare host token; not the tail of a slug like cds-scc-pub (the footer's repo link)
   if (sccCode) bad(`${label}: scc host pattern found: ${sccCode[0]}`);
   for (const hst of HOSTNAMES)
     if (new RegExp(`\\b${esc(hst)}\\b`, 'i').test(text)) bad(`${label}: real hostname found: ${hst}`);

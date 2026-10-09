@@ -177,6 +177,13 @@ assert(run(bad) === 1, 'unexpected top-level key fails'); pass('unexpected top-l
 assert(run(goodData, '<html>node scc-fix1 was busy</html>') === 1, 'real hostname in html fails');
 pass('real hostname in html fails');
 
+// the footer's own repo link: "cds-scc-pub" is a slug, not a host. \b sits between
+// "-" and "s", so a bare \bscc- pattern read it as the host "scc-pub" and failed the
+// 2026-10-09 publish right after the GitHub rename.
+assert(run(goodData, '<html><a href="https://github.com/BU-CDS/cds-scc-pub">GitHub</a></html>') === 0,
+       'the repo slug cds-scc-pub in html passes');
+pass('the repo slug cds-scc-pub in html passes');
+
 assert(run(goodData, '<html>owned by u-1234</html>') === 1, 'registry code (u-1234) in html fails');
 pass('registry code (u-1234) in html fails');
 
