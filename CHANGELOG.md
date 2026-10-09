@@ -4,6 +4,14 @@ All notable changes to the public cluster page.
 
 ## 2026-10-09
 
+- **The gate's host scan no longer reads the repo slug as a hostname** (2026-10-09,
+  `scripts/gate_cluster.mjs`, `scripts/test_gate.mjs`): the first publish after the
+  rename failed at `gate_cluster` with `html: scc host pattern found: scc-pub`. The
+  scan's `\bscc-[a-z0-9]+\b` matched inside the footer's new
+  `github.com/BU-CDS/cds-scc-pub` href, because `\b` holds between `-` and `s`. The
+  pattern now also refuses a word character or hyphen immediately before `scc-`, so a
+  hyphenated slug passes while a bare hostname like `scc-fix1` still fails; test_gate
+  pins both.
 - **Repo: renamed on GitHub to `BU-CDS/cds-scc-pub`** (2026-10-09,
   `build_cluster_page.R`, `scripts/test_page.mjs`): `BU-CDS/pub-cds-scc` is
   now `BU-CDS/cds-scc-pub`; GitHub redirects the old web and git URLs. The
