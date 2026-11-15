@@ -5,7 +5,8 @@
 # next deploy. Also covers this repo's script / "updated" stamp guards (an
 # inline-script page is accepted, a page calling fetch( is refused, an
 # unstamped page is refused, a clean page stages without pushing under
-# DEPLOY_PUSH=0). Run directly; exits nonzero on any failure.
+# DEPLOY_PUSH=0), the gate stamp (no stamp or a stale one is refused) and the
+# exact three-file manifest. Run directly; exits nonzero on any failure.
 set -uo pipefail
 
 S="$(cd "$(dirname "$0")" && pwd)"
@@ -15,7 +16,9 @@ FAILS=0
 ok(){ echo "PASS: $*"; }
 bad(){ echo "FAIL: $*"; FAILS=$((FAILS+1)); }
 
-mkrepo(){ # $1: dir — toy repo holding a clean page and a copy of deploy.sh
+stamp(){ git -C "$1" hash-object "$1/index.html" > "$1/.gate-pass"; }   # what gate_cluster.mjs writes on a pass
+
+mkrepo(){ # $1: dir — toy repo holding a clean, gate-stamped page and a copy of deploy.sh
   git init -q -b main "$1"
   git -C "$1" config user.email test@test
   git -C "$1" config user.name test
@@ -23,6 +26,7 @@ mkrepo(){ # $1: dir — toy repo holding a clean page and a copy of deploy.sh
   cp "$DEPLOY" "$1/deploy.sh"
   git -C "$1" add -A
   git -C "$1" -c commit.gpgsign=false commit -qm init
+  stamp "$1"
 }
 
 wt_count(){ git -C "$1" worktree list | wc -l; }
@@ -77,29 +81,51 @@ else bad "PORTAL_PUBLIC_DOMAIN did not reach CNAME"; fi
 # page ships exactly one inline script)
 T5="$WORK/t5"; mkrepo "$T5"
 printf '<html><script>console.log(1)</script>updated quarterly &middot; 2026-08-31</html>\n' > "$T5/index.html"
+stamp "$T5"
 ( cd "$T5" && DEPLOY_PUSH=0 ./deploy.sh ) >/dev/null 2>&1 \
   && ok "inline-script page accepted" || bad "inline-script page was refused"
 # guard: a page calling fetch( is refused (no external network calls, even
 # from an otherwise-legitimate inline script)
 T5B="$WORK/t5b"; mkrepo "$T5B"
 printf '<html><script>fetch("/x")</script>updated quarterly &middot; 2026-08-31</html>\n' > "$T5B/index.html"
+stamp "$T5B"
 ( cd "$T5B" && DEPLOY_PUSH=0 ./deploy.sh ) >/dev/null 2>&1 \
   && bad "fetch(-calling page was accepted" || ok "fetch(-calling page refused"
 # guard: a sourced script other than the Google Analytics loader is refused, whatever
 # its attributes; the loader itself is accepted
 T5C="$WORK/t5c"; mkrepo "$T5C"
 printf '<html><script async src="https://cdn.example.org/x.js"></script>updated quarterly &middot; 2026-08-31</html>\n' > "$T5C/index.html"
+stamp "$T5C"
 ( cd "$T5C" && DEPLOY_PUSH=0 ./deploy.sh ) >/dev/null 2>&1 \
   && bad "foreign sourced-script page was accepted" || ok "foreign sourced-script page refused"
 T5D="$WORK/t5d"; mkrepo "$T5D"
 printf '<html><script async src="https://www.googletagmanager.com/gtag/js?id=G-0B07K1F1MX"></script><script>window.dataLayer=window.dataLayer||[];</script>updated quarterly &middot; 2026-08-31</html>\n' > "$T5D/index.html"
+stamp "$T5D"
 ( cd "$T5D" && DEPLOY_PUSH=0 ./deploy.sh ) >/dev/null 2>&1 \
   && ok "Google loader page accepted" || bad "Google loader page was refused"
 # guard: a page missing the "updated quarterly ·" stamp is refused
 T6="$WORK/t6"; mkrepo "$T6"
 printf '<html>no stamp here</html>\n' > "$T6/index.html"
+stamp "$T6"
 ( cd "$T6" && DEPLOY_PUSH=0 ./deploy.sh ) >/dev/null 2>&1 \
   && bad "unstamped page was accepted" || ok "unstamped page refused"
+# gate stamp: no stamp, or a stamp for different bytes, is refused
+T8="$WORK/t8"; mkrepo "$T8"; rm -f "$T8/.gate-pass"
+( cd "$T8" && DEPLOY_PUSH=0 ./deploy.sh ) >/dev/null 2>&1 \
+  && bad "unstamped (never gated) page was accepted" || ok "page without a gate stamp refused"
+T9="$WORK/t9"; mkrepo "$T9"
+printf '<html>edited after the gate · updated quarterly</html>\n' > "$T9/index.html"
+( cd "$T9" && DEPLOY_PUSH=0 ./deploy.sh ) >/dev/null 2>&1 \
+  && bad "page changed after gating was accepted" || ok "page changed after gating refused"
+# exact manifest: a stray file inside the (single) page commit is dropped by the next publish
+T10="$WORK/t10"; mkrepo "$T10"
+( cd "$T10" && DEPLOY_PUSH=0 ./deploy.sh ) >/dev/null 2>&1 || bad "manifest baseline deploy failed"
+TW="$WORK/t10wt"; git -C "$T10" worktree add -q "$TW" page && echo secret > "$TW/stray.csv" \
+  && git -C "$TW" add stray.csv && git -C "$TW" -c commit.gpgsign=false commit -q --amend --no-edit && git -C "$T10" worktree remove --force "$TW"
+( cd "$T10" && DEPLOY_PUSH=0 ./deploy.sh ) >/dev/null 2>&1 || bad "manifest deploy failed"
+files="$(git -C "$T10" ls-tree --name-only page | sort | tr '\n' ' ')"
+[ "$files" = ".nojekyll CNAME index.html " ] && ok "page branch holds exactly index.html, .nojekyll, CNAME" \
+  || bad "page branch files: $files"
 # clean page stages without pushing
 T7="$WORK/t7"; mkrepo "$T7"
 ( cd "$T7" && DEPLOY_PUSH=0 ./deploy.sh ) >/dev/null 2>&1 \

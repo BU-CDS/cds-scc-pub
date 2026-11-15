@@ -14,13 +14,20 @@
 // meta.contract===3. Contract v4 (2026-09-01) adds `weekly` [monday,pool,held_h]:
 // Monday dates only, dense and bounded per pool by that pool's published months,
 // Σ within 5 % of the monthly Σheld_h; meta.contract===4.
+// Contract v5 (2026-11-15) narrows the file to what the page and the gate read:
+// cpu_monthly, gpu_monthly, headline (and conservation), capacity_monthly and the
+// P3/P6 community rows are gone, and refused if they come back. `monthly`
+// [month,pool,held_h] carries one row per published month per pool, for the weekly
+// cross-check; `capacity` admits only cpu/gpu with numeric totals; the built page
+// may hold no JSON object with the file's keys; a passing page is stamped
+// (.gate-pass = its git blob hash) and a failing one is left unstamped.
 // The gate now also reads output/portal_data.json under
 // both fixture clone dirs (the internal de-identified emits) for its leak
 // check, so this file writes small internal-emit fixtures with distinctive
 // user codes / project names to test that check.
 //
 // Run: module load nodejs/20.12.2 && node scripts/test_gate.mjs
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -83,14 +90,12 @@ writeFileSync(join(emptyGpuDir, 'config', 'cds_gpu_hosts.csv'), readFileSync(joi
 writeFileSync(join(emptyCpuDir, 'output', 'portal_data.json'), JSON.stringify({ Fcols: FCOLS_INTERNAL, F: [] }));
 writeFileSync(join(emptyGpuDir, 'output', 'portal_data.json'), JSON.stringify({ Fcols: FCOLS_INTERNAL, F: [] }));
 
-// ---- a clean cluster_data.json fixture, shaped like the real contract v3 output --
-// cpu_monthly row: [month,node_class,held_h,utilized_h,fail_h,wkill_h,njobs,wa_used_h,wa_req_h]
-// gpu_monthly row: [month,card,held_h,real_h,residle_h,kwh,vram_h,fail_h,wkill_h,njobs]
-// community row: [window_key,pool,users,groups]; capacity_monthly row: [month,pool,cap_h]
+// ---- a clean cluster_data.json fixture, shaped like the real contract v5 output --
+// monthly row: [month,pool,held_h]; community row: [window_key,pool,users,groups]
 const goodData = {
   meta: { updated: '2026-08-31', public: true,
           months_cpu: ['2026-06', '2026-07'], months_gpu: ['2026-06', '2026-07'],
-          window3: ['2026-06', '2026-07'], contract: 4 },
+          window3: ['2026-06', '2026-07'], contract: 5 },
   capacity: {
     cpu: { nodes: 2, cores: 52, ram_gb: 1258,
            types: [['Gold-6326', 'PowerEdge R650', 1, 32, 1007], ['E5-2660v3', 'PowerEdge C6320', 1, 20, 251]],
@@ -99,28 +104,15 @@ const goodData = {
            types: [['H200', 'PowerEdge R770', 1, 2, 144]],
            added_12m: 1 },
   },
-  cpu_monthly: [
-    ['2026-06', 'standard', 100, 90, 3, 1, 10, 95, 98],
-    ['2026-06', 'm1024',     50, 40, 2, 1,  5, 45, 48],
-    ['2026-07', 'standard', 110,100, 4, 2, 11,105,108],
-    ['2026-07', 'm1024',     60, 50, 2, 1,  6, 55, 58],
+  // held_h: cpu 150+170=320, gpu 200+210=410
+  monthly: [
+    ['2026-06', 'cpu', 150], ['2026-07', 'cpu', 170],
+    ['2026-06', 'gpu', 200], ['2026-07', 'gpu', 210],
   ],
-  gpu_monthly: [
-    ['2026-06', 'H200', 200, 150, 8, 300, 180, 3, 1, 20],
-    ['2026-07', 'H200', 210, 160, 9, 310, 190, 4, 1, 21],
-  ],
-  // held_h: cpu 100+50+110+60=320, gpu 200+210=410; jobs: cpu 10+5+11+6=32, gpu 20+21=41 -> 73
-  headline: { cpu_core_h: 320, gpu_h: 410, jobs: 73 },
   community: [
     ['M:2026-06', 'cpu', 10, 5], ['M:2026-06', 'gpu', 8, 4],
     ['M:2026-07', 'cpu', 12, 6], ['M:2026-07', 'gpu', 9, 4],
-    ['P3', 'cpu', 15, 8], ['P3', 'gpu', 12, 6],
-    ['P6', 'cpu', 15, 8], ['P6', 'gpu', 12, 6],
     ['ALL', 'cpu', 15, 8], ['ALL', 'gpu', 12, 6],
-  ],
-  capacity_monthly: [
-    ['2026-06', 'cpu', 38000], ['2026-07', 'cpu', 39000],
-    ['2026-06', 'gpu', 1400],  ['2026-07', 'gpu', 1450],
   ],
   // weekly: [monday, pool, held_h] -- months 2026-06..07 -> Mondays 06-01 .. 07-20 (8 weeks; 2026-06-01 is a Monday,
   // the last Sunday inside July is 07-26). Σ per pool equals the monthly Σheld_h exactly (cpu 320, gpu 410).
@@ -156,20 +148,8 @@ assert(run(bad) === 1, 'unknown string (hostname-shaped) in json fails'); pass('
 bad = clone(goodData); bad.capacity.gpu.types[0][0] = 'RTX4090Ti';
 assert(run(bad) === 1, 'unknown gpu card model fails'); pass('unknown model in json fails');
 
-bad = clone(goodData); bad.cpu_monthly[0][0] = '2026-6';
+bad = clone(goodData); bad.monthly[0][0] = '2026-6';
 assert(run(bad) === 1, 'non-YYYY-MM period fails'); pass('non-YYYY-MM period fails');
-
-bad = clone(goodData); bad.headline.cpu_core_h = 999;
-assert(run(bad) === 1, 'broken conservation sum fails'); pass('broken conservation sum (cpu_core_h) fails');
-
-bad = clone(goodData); bad.headline.jobs = 1;
-assert(run(bad) === 1, 'broken conservation sum (jobs) fails'); pass('broken conservation sum (jobs) fails');
-
-bad = clone(goodData); bad.headline.cpu_core_h = 'not-a-number';
-assert(run(bad) === 1, 'non-numeric conservation value fails'); pass('non-numeric headline.cpu_core_h fails (not silently NaN-passed)');
-
-bad = clone(goodData); bad.cpu_monthly[0][1] = 'gpuheavy';
-assert(run(bad) === 1, 'unknown node_class fails'); pass('unknown node_class fails');
 
 bad = clone(goodData); bad.extra_key = 1;
 assert(run(bad) === 1, 'unexpected top-level key fails'); pass('unexpected top-level key fails');
@@ -195,28 +175,61 @@ pass('the repo slug cds-scc-pub in html passes');
 assert(run(goodData, '<html>owned by u-1234</html>') === 1, 'registry code (u-1234) in html fails');
 pass('registry code (u-1234) in html fails');
 
-// ---- contract v2: widened-row shape checks ----
-bad = clone(goodData); bad.cpu_monthly[0] = bad.cpu_monthly[0].slice(0, 7);
-assert(run(bad) === 1, 'cpu_monthly row narrower than 9 elements fails'); pass('cpu_monthly row narrower than 9 elements fails');
+// ---- contract v5: monthly [month, pool, held_h] ----
+assert(run(goodData) === 0, 'clean contract v5 json passes'); pass('clean contract v5 json passes');
 
-bad = clone(goodData); bad.gpu_monthly[0] = bad.gpu_monthly[0].slice(0, 8);
-assert(run(bad) === 1, 'gpu_monthly row narrower than 10 elements fails'); pass('gpu_monthly row narrower than 10 elements fails');
+bad = clone(goodData); bad.monthly[0] = [...bad.monthly[0], 0];
+assert(run(bad) === 1, 'monthly row wider than 3 fails'); pass('monthly row wider than 3 elements fails');
 
-bad = clone(goodData); bad.cpu_monthly[0] = [...bad.cpu_monthly[0], 0];
-assert(run(bad) === 1, 'cpu_monthly row wider than 9 elements fails'); pass('cpu_monthly row wider than 9 elements fails');
+bad = clone(goodData); bad.monthly[0][2] = 'nope';
+assert(run(bad) === 1, 'non-numeric monthly held_h fails'); pass('non-numeric monthly held_h fails');
 
-// ---- contract v2: non-numeric detection per new column ----
-bad = clone(goodData); bad.cpu_monthly[0][3] = 'nope';   // utilized_h
-assert(run(bad) === 1, 'non-numeric cpu_monthly utilized_h fails'); pass('non-numeric cpu_monthly utilized_h fails');
+bad = clone(goodData); bad.monthly[0][2] = -1;
+assert(run(bad) === 1, 'negative monthly held_h fails'); pass('negative monthly held_h fails');
 
-bad = clone(goodData); bad.cpu_monthly[0][7] = 'nope';   // wa_used_h
-assert(run(bad) === 1, 'non-numeric cpu_monthly wa_used_h fails'); pass('non-numeric cpu_monthly wa_used_h fails');
+bad = clone(goodData); bad.monthly[0][1] = 'tpu';
+assert(run(bad) === 1, 'monthly unknown pool fails'); pass('monthly: unknown pool fails');
 
-bad = clone(goodData); bad.gpu_monthly[0][5] = 'nope';   // kwh
-assert(run(bad) === 1, 'non-numeric gpu_monthly kwh fails'); pass('non-numeric gpu_monthly kwh fails');
+bad = clone(goodData); bad.monthly.push(['2099-01', 'cpu', 0]);
+assert(run(bad) === 1, 'monthly month outside the list fails'); pass("monthly: a month outside meta's month list fails");
 
-bad = clone(goodData); bad.gpu_monthly[0][4] = -1;   // residle_h negative
-assert(run(bad) === 1, 'negative gpu_monthly residle_h fails'); pass('negative gpu_monthly residle_h fails');
+bad = clone(goodData); bad.monthly = bad.monthly.filter((r) => !(r[0] === '2026-07' && r[1] === 'gpu'));
+{ const r = runWith(bad); assert(r.status === 1 && /expected exactly 1 row for month 2026-07 \/ pool gpu, found 0/.test(r.stderr), 'monthly: a missing month fails'); pass('monthly: a missing month fails, naming it'); }
+
+bad = clone(goodData); bad.monthly.push(['2026-06', 'cpu', 0]);
+{ const r = runWith(bad); assert(r.status === 1 && /found 2/.test(r.stderr), 'monthly: a duplicate month fails'); pass('monthly: a duplicate (month, pool) row fails'); }
+
+bad = clone(goodData); bad.monthly = [];
+assert(run(bad) === 1, 'empty monthly table fails'); pass('empty monthly table fails');
+
+// ---- contract v5: the dropped fields are refused if they come back ----
+for (const [key, val] of [
+  ['cpu_monthly', [['2026-06', 'standard', 100, 90, 3, 1, 10, 95, 98]]],
+  ['gpu_monthly', [['2026-06', 'H200', 200, 150, 8, 300, 180, 3, 1, 20]]],
+  ['headline', { cpu_core_h: 320, gpu_h: 410, jobs: 73 }],
+  ['capacity_monthly', [['2026-06', 'cpu', 38000]]],
+]) {
+  bad = clone(goodData); bad[key] = val;
+  const r = runWith(bad);
+  assert(r.status === 1 && r.stderr.includes(`unexpected top-level key: ${key}`), `dropped field ${key} is refused`);
+  pass(`dropped field ${key} is refused`);
+}
+
+// ---- contract v5: capacity holds only cpu/gpu, with numeric totals ----
+bad = clone(goodData); bad.capacity.m1024 = { nodes: 1 };
+{ const r = runWith(bad); assert(r.status === 1 && r.stderr.includes('unexpected capacity key: m1024'), 'unexpected capacity key fails'); pass('an unexpected key under capacity fails'); }
+
+bad = clone(goodData); bad.capacity.cpu.nodes = '2';
+assert(run(bad) === 1, 'string capacity count fails'); pass('a capacity count given as a string fails');
+
+bad = clone(goodData); bad.capacity.gpu.gpus = 2.5;
+assert(run(bad) === 1, 'fractional capacity count fails'); pass('a fractional capacity count fails');
+
+bad = clone(goodData); bad.capacity.cpu.ram_gb = null;
+assert(run(bad) === 1, 'null ram_gb fails'); pass('a null capacity.cpu.ram_gb fails');
+
+bad = clone(goodData); bad.capacity.gpu.types = { H200: 2 };
+assert(run(bad) === 1, 'capacity types not a list fails'); pass('capacity.gpu.types that is not a list fails');
 
 // ---- contract v2: meta.window3 replaces window6 ----
 bad = clone(goodData); bad.meta.window6 = bad.meta.window3; delete bad.meta.window3;
@@ -225,22 +238,15 @@ assert(run(bad) === 1, 'meta.window6 (old v1 key) fails: window3 required'); pas
 bad = clone(goodData); bad.meta.window3 = ['2026-01', '2026-02', '2026-03', '2026-04'];
 assert(run(bad) === 1, 'meta.window3 with more than 3 months fails'); pass('meta.window3 with more than 3 months fails');
 
-// ---- contract v2: conservation recomputed over window3 from the widened rows ----
-bad = clone(goodData); bad.gpu_monthly[0][2] = 999;   // held_h tampered -> breaks conservation
-assert(run(bad) === 1, 'tampered gpu_monthly held_h breaks conservation'); pass('tampered gpu_monthly held_h breaks conservation');
-
-bad = clone(goodData); bad.cpu_monthly[0][6] = 999;   // njobs tampered -> breaks conservation
-assert(run(bad) === 1, 'tampered cpu_monthly njobs breaks conservation'); pass('tampered cpu_monthly njobs breaks conservation');
-
-// ---- contract v3: clean json passes with community/capacity_monthly/added_12m ----
-assert(run(goodData) === 0, 'clean contract v3 json passes'); pass('clean contract v3 json (community/capacity_monthly/added_12m) passes');
-
 // ---- contract v3: community ----
 bad = clone(goodData); bad.community[0][0] = 'M:2099-01';   // not in months_cpu/months_gpu
 assert(run(bad) === 1, 'community: bad window key fails'); pass('community: bad window key (month not in whitelist) fails');
 
-bad = clone(goodData); bad.community[0][0] = 'past3';   // not one of M:/P3/P6/ALL
+bad = clone(goodData); bad.community[0][0] = 'past3';   // not one of M:/ALL
 assert(run(bad) === 1, 'community: non-vocabulary window key fails'); pass('community: non-vocabulary window key fails');
+
+bad = clone(goodData); bad.community.push(['P3', 'cpu', 15, 8], ['P3', 'gpu', 12, 6]);   // dropped in contract v5
+assert(run(bad) === 1, 'community: a P3 row fails'); pass('community: a P3 row (dropped in contract v5) fails');
 
 bad = clone(goodData); bad.community[0][1] = 'tpu';
 assert(run(bad) === 1, 'community: unknown pool fails'); pass('community: unknown pool fails');
@@ -251,23 +257,9 @@ assert(run(bad) === 1, 'community: negative count fails'); pass('community: nega
 bad = clone(goodData); bad.community[0][3] = 2.5;
 assert(run(bad) === 1, 'community: non-integer count fails'); pass('community: non-integer groups count fails');
 
-bad = clone(goodData);   // P3 (15) exceeds P6 (now 10) for cpu
-bad.community = bad.community.map((r) => (r[0] === 'P6' && r[1] === 'cpu' ? [r[0], r[1], 10, 5] : r));
-assert(run(bad) === 1, 'community: P3 > P6 fails'); pass('community: P3 > P6 for a pool fails');
-
 bad = clone(goodData);   // M:2026-07 cpu users (12) exceeds ALL (now 10) for cpu
 bad.community = bad.community.map((r) => (r[0] === 'ALL' && r[1] === 'cpu' ? [r[0], r[1], 10, 8] : r));
 assert(run(bad) === 1, 'community: M: > ALL fails'); pass('community: an M: window exceeding ALL for a pool fails');
-
-// ---- contract v3: capacity_monthly ----
-bad = clone(goodData); bad.capacity_monthly[0][2] = 0;
-assert(run(bad) === 1, 'capacity_monthly: cap_h == 0 fails'); pass('capacity_monthly: cap_h <= 0 fails');
-
-bad = clone(goodData); bad.capacity_monthly[0][2] = -100;
-assert(run(bad) === 1, 'capacity_monthly: negative cap_h fails'); pass('capacity_monthly: negative cap_h fails');
-
-bad = clone(goodData); bad.capacity_monthly[0][0] = '2099-01';   // not in months_cpu
-assert(run(bad) === 1, 'capacity_monthly: month outside the whitelist fails'); pass('capacity_monthly: month outside the whitelist fails');
 
 // ---- contract v3: added_12m ----
 bad = clone(goodData); bad.capacity.cpu.added_12m = bad.capacity.cpu.cores + 1;   // exceeds pool total (cores)
@@ -277,8 +269,29 @@ bad = clone(goodData); bad.capacity.gpu.added_12m = -1;
 assert(run(bad) === 1, 'capacity.gpu.added_12m negative fails'); pass('capacity.gpu.added_12m negative fails');
 
 // ---- contract v3: meta.contract ----
-bad = clone(goodData); bad.meta.contract = 3;
-assert(run(bad) === 1, 'meta.contract != 4 fails'); pass('meta.contract must be 4');
+bad = clone(goodData); bad.meta.contract = 4;
+assert(run(bad) === 1, 'meta.contract != 5 fails'); pass('meta.contract must be 5');
+
+// ---- contract v5: no embedded data object in the page ----
+{
+  const r = runWith(goodData, '<html><script>const DATA={"community":[["ALL","cpu",15,8]]};</script></html>');
+  assert(r.status === 1 && r.stderr.includes('embedded data object'), 'an embedded data object in html fails');
+  pass('an embedded data object in html fails, naming the check');
+}
+
+// ---- gate stamp: a passing page gets .gate-pass = its git blob hash; a failing one none ----
+{
+  const stamp = join(dir, '.gate-pass');
+  rmSync(stamp, { force: true });
+  assert(run(goodData) === 0 && !existsSync(stamp), 'a json-only run writes no stamp');
+  pass('a json-only run writes no stamp');
+  assert(run(goodData, '<html>410 gpu-h delivered</html>') === 0, 'clean page passes');
+  const want = execFileSync('git', ['hash-object', join(dir, 'page.html')]).toString().trim();
+  assert(existsSync(stamp) && readFileSync(stamp, 'utf8').trim() === want, 'the stamp equals git hash-object of the page');
+  pass('a passing page is stamped with its git blob hash');
+  assert(run(goodData, '<html>node scc-fix1 was busy</html>') === 1 && !existsSync(stamp), 'a failing page removes the stamp');
+  pass('a failing page leaves no stamp (the earlier one is removed)');
+}
 
 // ---- contract v3: leak check reads both internal emits' user codes/project names --
 // (not the generic u-\d+/scc-.* patterns above -- these target the NEW,
@@ -412,15 +425,12 @@ assert(run(bad) === 1, 'missing weekly key fails'); pass('missing top-level week
 bad = clone(goodData); bad.community = [];
 assert(run(bad) === 1, 'empty community table fails'); pass('empty community table fails (missing every window key x pool row)');
 
-bad = clone(goodData); bad.capacity_monthly = [];
-assert(run(bad) === 1, 'empty capacity_monthly table fails'); pass('empty capacity_monthly table fails (missing every month x pool row)');
-
-bad = clone(goodData); bad.community = bad.community.filter((r) => r[0] !== 'P6');
+bad = clone(goodData); bad.community = bad.community.filter((r) => r[0] !== 'ALL');
 {
   const r = runWith(bad);
-  assert(r.status === 1, 'community missing every P6 row (both pools) fails');
-  assert(/expected exactly 1 row for window P6/.test(r.stderr), 'failure names the missing P6 rows specifically');
-  pass('community missing every P6 row fails via completeness, even though it silently severs the P3<=P6<=ALL chain');
+  assert(r.status === 1, 'community missing every ALL row (both pools) fails');
+  assert(/expected exactly 1 row for window ALL/.test(r.stderr), 'failure names the missing ALL rows specifically');
+  pass('community missing every ALL row fails via completeness');
 }
 
 // fail-closed on unreadable json input

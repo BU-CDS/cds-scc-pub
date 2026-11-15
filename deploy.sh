@@ -11,6 +11,16 @@ REPO="$(git -C "$ROOT" rev-parse --show-toplevel)"
 PAGE="$ROOT/index.html"
 [ -f "$PAGE" ] || { echo "deploy: no index.html to publish"; exit 1; }
 
+# gate stamp (2026-11-15): publish only the exact bytes gate_cluster.mjs passed. The gate
+# writes .gate-pass (the page's git blob hash) beside a page it passes and deletes it on a
+# fail, so a page that skipped the gate, failed it, or changed afterwards cannot publish.
+STAMP="$ROOT/.gate-pass"
+want="$(git hash-object "$PAGE")"
+if [ ! -f "$STAMP" ] || [ "$(tr -d '[:space:]' < "$STAMP")" != "$want" ]; then
+  echo "deploy: REFUSED -- index.html has no matching gate stamp. Run it through refresh_public.sh (gate_cluster.mjs with the built page)." >&2
+  exit 1
+fi
+
 # script guard: the zero-JS rule is dead (design revision of 2026-08-31) -- the page now
 # legitimately ships one inline <script> for the Over-time slides and tooltips.
 # What is still refused, unconditionally (no env var bypasses it): anything
@@ -66,6 +76,9 @@ git -C "$REPO" worktree add -q "$WT" page
 cp "$PAGE" "$WT/index.html"; : > "$WT/.nojekyll"
 # custom domain: Pages needs a CNAME file in the published branch.
 printf '%s\n' "${PORTAL_PUBLIC_DOMAIN:-cluster.cds.bu.edu}" > "$WT/CNAME"
+# exact manifest: the commit holds these three files and nothing else, so a stray file
+# that ever reached the page branch is dropped on the next publish.
+git -C "$WT" rm -rq --cached --ignore-unmatch .
 git -C "$WT" add -f index.html .nojekyll CNAME
 git -C "$WT" commit -q --amend -m "Publish $(date '+%F %H:%M %Z')"
 if [ "${DEPLOY_PUSH:-1}" = 1 ]; then

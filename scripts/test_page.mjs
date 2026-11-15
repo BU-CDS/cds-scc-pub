@@ -132,11 +132,14 @@ for (const needle of ['id="sechead"', 'id="gpucard"', 'id="cpucard"', 'id="prang
 for (const lbl of ['Reserved core-h<', 'Utilized core-h', 'Avg efficiency', 'Core-h per job', 'Reserved GPU-h<', 'Utilized GPU-h',
   'Avg utilization', 'Jobs run', 'Energy used', 'Mean VRAM', 'Researchers served', 'Capacity reserved'])
   not(html, lbl, 'removed KPI tile "' + lbl + '" appears nowhere');
-for (const needle of ['const DATA', 'DATA.', 'cpu_monthly', 'gpu_monthly', 'capacity_monthly', 'headline', 'window3',
+for (const needle of ['const DATA', 'DATA.', '"monthly"', 'cpu_monthly', 'gpu_monthly', 'capacity_monthly', 'headline', 'window3',
   'fail_h', 'wkill', 'wa_used', 'wa_req', 'residle', 'vram_h', 'njobs', 'kwh', 'data-m='])
   not(html, needle, 'no embedded data: "' + needle + '" appears nowhere in the page source');
 {
-  const nodeClasses = [...new Set(data.cpu_monthly.map(r => r[1]))];
+  // the node-class vocabulary, from the CPU clone's host config (contract v5 no longer carries it)
+  const hostsCsv = readFileSync(join(process.env.PUB_CPU_CLONE || '/usr3/bustaff/mhorn/repos/cpu-cds-scc', 'config', 'cds_cpu_hosts.csv'), 'utf8').trim().split('\n');
+  const nci = hostsCsv[0].split(',').indexOf('node_class');
+  const nodeClasses = [...new Set(hostsCsv.slice(1).map(l => l.split(',')[nci]).filter(Boolean))];
   const leaked = nodeClasses.filter(c => new RegExp('\\b' + c + '\\b').test(html));
   leaked.length === 0 ? ok('no CPU node-class key (' + nodeClasses.join(', ') + ') appears in the page') : bad('node-class keys in the page: ' + leaked.join(', '));
 }

@@ -3,6 +3,7 @@ output/
 index.html
 # pipeline state
 refresh.log
+.gate-pass
 .refresh.lock
 .alert/
 # local operator config

@@ -4,6 +4,29 @@ All notable changes to the public cluster page.
 
 ## 2026-11-15
 
+- **Data contract 5: the export keeps only what the page and the gate read**
+  (2026-11-15, `scripts/50_cluster_data.R`, `scripts/gate_cluster.mjs`,
+  `scripts/test_cluster_data.R`, `scripts/test_gate.mjs`, `scripts/test_page.mjs`,
+  `build_cluster_page.R`, `README.md`): `cluster_data.json` no longer carries the
+  monthly rows by node class and card (with failed, wall-killed, walltime and
+  idle hours), the headline, the monthly nominal capacity or the past-3/6-month
+  researcher counts. It keeps hardware, the weekly series, researcher counts per
+  month and in all, and a new `monthly` table of reserved hours per pool, which
+  the gate uses to check the weekly series. The gate refuses any dropped field
+  that comes back, any key under `capacity` other than cpu and gpu, hardware
+  totals that are not numbers, and an embedded copy of the data in the page.
+  The export needs only the emits' held-hours, user and project columns, and a
+  failed swap of the output file now stops the run instead of passing silently.
+- **Deploy publishes only the page the gate passed, and only three files**
+  (2026-11-15, `deploy.sh`, `scripts/gate_cluster.mjs`, `scripts/test_deploy.sh`,
+  `refresh_public.sh`, `.gitignore`): a page that passes the gate gets a stamp,
+  `.gate-pass`, holding its git blob hash; a failing run deletes it. `deploy.sh`
+  refuses a page with no stamp or with different bytes, so a hand run that
+  skips the gate, or a page edited after it, cannot publish. The page commit is
+  rebuilt from `index.html`, `.nojekyll` and `CNAME` alone, so a stray file on
+  the branch is dropped at the next publish. test_deploy pins all three; each
+  check fails against the previous `deploy.sh`.
+
 - **Leak check: whole words, base64 assets skipped** (2026-11-15,
   `scripts/test_page.mjs`, `scripts/gate_cluster.mjs`, `scripts/test_gate.mjs`):
   the SCC dry run failed test_page's project-name check on names that were not

@@ -10,8 +10,9 @@
 # skip it, so they don't clobber output/index.html) + logged. Refuses to start
 # from a checkout that lacks a step's source or, when the run could push, is
 # not on PUB_EXPECT_BRANCH (default main). Local-only:
-# output/, index.html, refresh.log, .alert/, .refresh.lock, config/alert_email
-# are gitignored. DEPLOY_PUSH=0 runs the whole pipeline and reaches deploy.sh
+# output/, index.html, refresh.log, .gate-pass, .alert/, .refresh.lock,
+# config/alert_email are gitignored. The second gate run stamps the page it
+# passes (.gate-pass); deploy.sh publishes only that exact page. DEPLOY_PUSH=0 runs the whole pipeline and reaches deploy.sh
 # same as any other run, but stages the page commit locally without pushing
 # (deploy.sh's own DEPLOY_PUSH guard); test_deploy.sh exercises that
 # stage-without-push path directly.

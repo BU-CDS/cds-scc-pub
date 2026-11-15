@@ -16,7 +16,7 @@
 # Visual source of truth: cpu-cds-scc/build_cpu_portal.R and
 # gpu-cds-scc/build_gpu_portal.R, read only.
 #
-# Reads:  output/cluster_data.json          (contract v4, the strip+combine emit)
+# Reads:  output/cluster_data.json          (contract v5, the strip+combine emit)
 # Assets (base64-embedded, read from the sibling clone, never copied in):
 #   $PUB_CPU_CLONE/assets/bu_plate_white.png
 #   $PUB_CPU_CLONE/assets/faculty_compt_data_sci_signature_toptier_rgb.png
@@ -147,7 +147,7 @@ cpu_growth <- growth_note("cpu", d$capacity$cpu$added_12m)
 # ---- the tables the Over-time slides read. ----
 as_mat <- function(x, ncol) if (is.null(dim(x))) matrix(x, ncol = ncol, byrow = TRUE) else x
 cmty <- as_mat(d$community, 4)         # window_key,pool,users,groups
-wk <- as_mat(d$weekly, 3)   # monday,pool,held_h (contract v4)
+wk <- as_mat(d$weekly, 3)   # monday,pool,held_h (contract v4+)
 
 # community is looked up by window key ("ALL" or "M:YYYY-MM"). No row reads as 0.
 community_for <- function(window_key, pool) {

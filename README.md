@@ -26,16 +26,19 @@ every step is green:
 
 1. `scripts/50_cluster_data.R` — reads the two pool dashboards' internal,
    already de-identified emitted data (read-only; locations via
-   `PUB_CPU_CLONE` / `PUB_GPU_CLONE`), keeps month-grain aggregates for
-   complete months and week-grain reserved hours for complete weeks, derives
-   pool capacity from the inventory records, counts distinct researchers and
-   groups, and writes `output/cluster_data.json`. No user code, project name
-   or host name survives the aggregation.
-2. `scripts/gate_cluster.mjs` — whitelist / blocklist / conservation gate over
-   that JSON: every model, card, class and period must be on the allow-list,
-   no host names or registry codes anywhere, totals must reconcile (the
-   weekly series against the monthly, the headline against the tables), and
-   every figure on the built page must carry its public rounding.
+   `PUB_CPU_CLONE` / `PUB_GPU_CLONE`) and writes `output/cluster_data.json`
+   (data contract 5): pool hardware from the inventory records, reserved hours
+   per pool for each complete week and each complete month, and distinct
+   researchers and groups per month and in all. It reads only reserved hours
+   and the user and project codes it counts. No user code, project name or
+   host name survives the aggregation.
+2. `scripts/gate_cluster.mjs` — whitelist / blocklist gate over that JSON:
+   only the contract's fields (a dropped one coming back fails), every model,
+   card and period on the allow-list, numeric hardware totals, no host names or
+   registry codes anywhere, and the weekly series within 5% of the monthly
+   totals. Over the built page it also refuses an embedded copy of the data and
+   any figure without its public rounding. A page that passes is stamped:
+   `.gate-pass` holds its git blob hash.
 3. `build_cluster_page.R` — renders `index.html` (panels and over-time
    charts; the JSON itself is not embedded) with the assets embedded:
    fonts, plate and emblem from the CPU clone, the favicon from this repo's
@@ -43,9 +46,10 @@ every step is green:
 4. `scripts/test_page.mjs` + `validate.mjs` — structure/containment tests and
    a run of the page's inline script under a DOM shim; the gate runs a second
    time over the built HTML.
-5. `deploy.sh` — publishes `index.html` (+ `.nojekyll`, `CNAME`) to the `page`
-   branch GitHub Pages serves; refuses any page that reaches outside itself
-   or lacks the "updated quarterly" stamp.
+5. `deploy.sh` — publishes `index.html`, `.nojekyll` and `CNAME`, and nothing
+   else, to the `page` branch GitHub Pages serves. It refuses a page whose
+   bytes do not match the gate's `.gate-pass` stamp, one that reaches outside
+   itself, and one without the "updated quarterly" stamp.
 
 Before step 1 the script checks the checkout itself: every step's file must
 exist, and a run that could push (the default) must be on `main`

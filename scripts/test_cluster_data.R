@@ -36,6 +36,13 @@
 # month); new dense `weekly` rows [monday "YYYY-MM-DD", pool, held_h] over complete
 # ISO weeks inside the published months; meta.contract = 4.
 #
+# Contract v5 (2026-11-15) narrows the output to what the page and the gate read:
+# top-level keys meta, capacity, monthly, community, weekly. cpu_monthly,
+# gpu_monthly, headline, capacity_monthly and the P3/P6 community rows are gone
+# (with the capacity_monthly proration test); `monthly` [month, pool, held_h] is
+# one row per published month per pool; the emits need only pt, p, held, user,
+# proj; meta.contract = 5.
+#
 # Run: module load R/4.5.2 && Rscript scripts/test_cluster_data.R
 # =====================================================================
 suppressPackageStartupMessages({
@@ -216,15 +223,15 @@ row_types_ok <- function(row, n_char) {
   all(vapply(row[seq_len(n_char)], is.character, logical(1))) &&
     all(vapply(row[seq_len(n - n_char) + n_char], is.numeric, logical(1)))
 }
-stopifnot("cpu_monthly rows must have 9 elements (contract v2)" = length(raw$cpu_monthly[[1]]) == 9)
-stopifnot("gpu_monthly rows must have 10 elements (contract v2)" = length(raw$gpu_monthly[[1]]) == 10)
-stopifnot("cpu_monthly rows must be [char,char,7x num], not all-string" = row_types_ok(raw$cpu_monthly[[1]], 2))
-stopifnot("gpu_monthly rows must be [char,char,8x num], not all-string" = row_types_ok(raw$gpu_monthly[[1]], 2))
+stopifnot("top-level keys must be exactly meta, capacity, monthly, community, weekly (contract v5)" =
+            identical(names(raw), c("meta", "capacity", "monthly", "community", "weekly")))
+stopifnot("monthly rows must have 3 elements (contract v5)" = length(raw$monthly[[1]]) == 3)
+stopifnot("monthly rows must be [char,char,num], not all-string" = row_types_ok(raw$monthly[[1]], 2))
 stopifnot("capacity.cpu.types rows must be [char,char,num,num,num], not all-string" =
   row_types_ok(raw$capacity$cpu$types[[1]], 2))
 stopifnot("capacity.gpu.types rows must be [char,char,num,num,num], not all-string" =
   row_types_ok(raw$capacity$gpu$types[[1]], 2))
-pass("cpu_monthly/gpu_monthly/capacity.types numeric fields are real JSON numbers, not strings; widened row shapes correct")
+pass("top-level keys are the contract v5 set; monthly and capacity.types numeric fields are real JSON numbers")
 
 # months exclude the current month
 stopifnot("cur must not appear in months_cpu" = !(cur %in% out$meta$months_cpu))
@@ -257,39 +264,16 @@ stopifnot("gpu types row must be [label,server,count,per_node,per_node_ram_gb]" 
   as.numeric(gpu_types[1, 3]) == 2 && as.numeric(gpu_types[1, 4]) == 4 && as.numeric(gpu_types[1, 5]) == 40)
 pass("capacity types rows shaped [label, server, count, per_node, per_node_ram_gb]")
 
-# cpu_monthly rows: [month,node_class,held_h,utilized_h,fail_h,wkill_h,njobs,wa_used_h,wa_req_h]
-# sums match the fixture by (month, class)
-cm <- out$cpu_monthly
-find_row <- function(mat, month, class) mat[mat[, 1] == month & mat[, 2] == class, , drop = FALSE]
-check_cpu_row <- function(month, class, held, utilized, fail_h, wkill_h, njobs, wa_used_h, wa_req_h) {
-  r <- find_row(cm, month, class)
-  stopifnot(nrow(r) == 1)
-  stopifnot(as.numeric(r[1,3]) == held && as.numeric(r[1,4]) == utilized && as.numeric(r[1,5]) == fail_h &&
-            as.numeric(r[1,6]) == wkill_h && as.numeric(r[1,7]) == njobs &&
-            as.numeric(r[1,8]) == wa_used_h && as.numeric(r[1,9]) == wa_req_h)
+# monthly rows: [month, pool, held_h], summed over node classes / cards
+mo <- out$monthly
+check_monthly <- function(month, pool, held) {
+  r <- mo[mo[, 1] == month & mo[, 2] == pool, , drop = FALSE]
+  stopifnot(nrow(r) == 1, as.numeric(r[1, 3]) == held)
 }
-check_cpu_row(prev2, "m1024",    50,  40, 2, 1, 2,  45,  48)
-check_cpu_row(prev2, "standard",100,  90, 3, 1, 5,  95,  98)
-check_cpu_row(prev1, "m1024",    60,  50, 2, 1, 3,  55,  58)
-check_cpu_row(prev1, "standard",110, 100, 4, 2, 6, 105, 108)
-stopifnot("cpu_monthly must not include the current month" = nrow(cm) == 4)
-pass("cpu_monthly widened rows [held_h,utilized_h,fail_h,wkill_h,njobs,wa_used_h,wa_req_h] match the fixture by (month, class); current month dropped")
-
-# gpu_monthly rows: [month,card,held_h,real_h,residle_h,kwh,vram_h,fail_h,wkill_h,njobs]
-gm <- out$gpu_monthly
-check_gpu_row <- function(month, card, held, real_h, residle_h, kwh, vram_h, fail_h, wkill_h, njobs) {
-  r <- find_row(gm, month, card)
-  stopifnot(nrow(r) == 1)
-  stopifnot(as.numeric(r[1,3]) == held && as.numeric(r[1,4]) == real_h && as.numeric(r[1,5]) == residle_h &&
-            as.numeric(r[1,6]) == kwh && as.numeric(r[1,7]) == vram_h && as.numeric(r[1,8]) == fail_h &&
-            as.numeric(r[1,9]) == wkill_h && as.numeric(r[1,10]) == njobs)
-}
-check_gpu_row(prev2, "H200", 300, 250, 10, 500, 280, 5, 2, 20)
-check_gpu_row(prev2, "L40S", 200, 150,  8, 300, 180, 3, 1, 10)
-check_gpu_row(prev1, "H200", 310, 260, 11, 510, 290, 6, 2, 21)
-check_gpu_row(prev1, "L40S", 210, 160,  9, 310, 190, 4, 1, 11)
-stopifnot("gpu_monthly must not include the current month" = nrow(gm) == 4)
-pass("gpu_monthly widened rows [held_h,real_h,residle_h,kwh,vram_h,fail_h,wkill_h,njobs] match the fixture by (month, card); current month dropped")
+check_monthly(prev2, "cpu", 150); check_monthly(prev1, "cpu", 170)   # m1024 + standard
+check_monthly(prev2, "gpu", 500); check_monthly(prev1, "gpu", 520)   # H200 + L40S
+stopifnot("monthly must hold one row per published month per pool, current month dropped" = nrow(mo) == 4)
+pass("monthly held_h sums node classes / cards per (month, pool); current month dropped")
 
 # meta.window3 replaces window6: trailing 3 complete months common to both pools
 # (only 2 months are complete in this fixture, so window3 has 2, not 3 -- exercises the
@@ -298,42 +282,20 @@ stopifnot("meta must carry window3, not window6" = is.null(out$meta$window6) && 
 stopifnot("window3 must be the 2 complete common months here" = setequal(out$meta$window3, c(prev2, prev1)))
 pass("meta.window3 present (window6 gone), holding the complete common months")
 
-# headline = cpu+gpu held/njobs summed over window3
-stopifnot("headline$cpu_core_h must sum the complete cpu months in window3" = as.numeric(out$headline$cpu_core_h) == 320)
-stopifnot("headline$gpu_h must sum the complete gpu months in window3" = as.numeric(out$headline$gpu_h) == 1020)
-stopifnot("headline$jobs must be cpu+gpu njobs over window3" = as.numeric(out$headline$jobs) == 78)
-pass("headline sums cpu+gpu held/njobs over window3")
-
-# ---- contract v4 (happy path): meta.contract, community, capacity_monthly, added_12m ----
-stopifnot("meta.contract must be 4" = as.numeric(out$meta$contract) == 4)
-pass("meta.contract == 4")
+# ---- contract v5 (happy path): meta.contract, community, added_12m ----
+stopifnot("meta.contract must be 5" = as.numeric(out$meta$contract) == 5)
+pass("meta.contract == 5")
 
 stopifnot("community rows must have 4 elements (contract v3)" = length(raw$community[[1]]) == 4)
 stopifnot("community rows must be [char,char,2x num], not all-string" = row_types_ok(raw$community[[1]], 2))
 comm_keys <- unique(out$community[, 1])
-expected_keys <- c(paste0("M:", c(prev2, prev1)), "P3", "P6", "ALL")
-stopifnot("community window_key set must be M:<month> for each published month plus P3/P6/ALL" =
+expected_keys <- c(paste0("M:", c(prev2, prev1)), "ALL")
+stopifnot("community window_key set must be M:<month> for each published month plus ALL" =
             setequal(comm_keys, expected_keys))
 stopifnot("community pool set must be exactly {cpu, gpu}" = setequal(unique(out$community[, 2]), c("cpu", "gpu")))
 stopifnot("community must have exactly one row per (window_key, pool)" =
             nrow(out$community) == length(expected_keys) * 2)
-pass("community rows cover every M:/P3/P6/ALL window key for both pools, contract v3 shape")
-
-stopifnot("capacity_monthly rows must have 3 elements (contract v3)" = length(raw$capacity_monthly[[1]]) == 3)
-stopifnot("capacity_monthly rows must be [char,char,num], not all-string" = row_types_ok(raw$capacity_monthly[[1]], 2))
-stopifnot("capacity_monthly must have one row per (month, pool), matching each pool's own published month list" =
-            nrow(out$capacity_monthly) == 4)   # 2 cpu months + 2 gpu months (months3 minus cur)
-cm <- out$capacity_monthly
-find_cap <- function(mat, month, pool) mat[mat[, 1] == month & mat[, 2] == pool, , drop = FALSE]
-expect_cpu_cap_h <- function(m) (20 + 20) * days_in_month(m) * 24   # nodeA+nodeB active, nodeC retired since 2020
-expect_gpu_cap_h <- function(m) (4 + 4)   * days_in_month(m) * 24   # g1+g2 active, g3 retired since 2020
-for (m in c(prev2, prev1)) {
-  r_cpu <- find_cap(cm, m, "cpu"); stopifnot(nrow(r_cpu) == 1)
-  stopifnot(abs(as.numeric(r_cpu[1, 3]) - expect_cpu_cap_h(m)) < 0.01)
-  r_gpu <- find_cap(cm, m, "gpu"); stopifnot(nrow(r_gpu) == 1)
-  stopifnot(abs(as.numeric(r_gpu[1, 3]) - expect_gpu_cap_h(m)) < 0.01)
-}
-pass("capacity_monthly cap_h matches nominal active units x hours-in-month for the default (unprorated, all install dates old) fixture")
+pass("community rows cover every M:/ALL window key for both pools")
 
 stopifnot("capacity.cpu.added_12m must be present and 0 (all install dates are old in the default fixture)" =
             !is.null(out$capacity$cpu$added_12m) && as.integer(out$capacity$cpu$added_12m) == 0)
@@ -358,13 +320,20 @@ stopifnot("CPU input 3 days old must make the script stop() (48h freshness limit
 pass("stale (3-day-old) CPU input is refused (48h limit)")
 
 # =====================================================================
-# 5) Fail closed: a GPU fixture missing a required v2 column (kwh) must
-#    stop() the build rather than silently emit zeros/garbage.
+# 5) Fail closed: a GPU fixture missing a required column (held) must
+#    stop() the build rather than silently emit zeros/garbage. The
+#    contract v2 metric columns (kwh, fail_h, ...) are no longer read.
 # =====================================================================
-f5 <- make_fixture(gpu2_cols = setdiff(GPU_INTERNAL_FCOLS, "kwh"))
+f5 <- make_fixture(gpu2_cols = setdiff(GPU_INTERNAL_FCOLS, "held"))
 r5 <- run_script(f5)
-stopifnot("GPU input missing required column kwh must make the script stop() (nonzero exit)" = r5$status != 0)
-pass("GPU internal emit missing a required column (kwh) is refused (fail closed)")
+stopifnot("GPU input missing required column held must make the script stop() (nonzero exit)" =
+            r5$status != 0 && grepl("missing required column", r5$output))
+pass("GPU internal emit missing a required column (held) is refused (fail closed)")
+
+f5b <- make_fixture(gpu2_cols = setdiff(GPU_INTERNAL_FCOLS, c("kwh", "fail_h", "wkill_h", "residle_h", "vram_h")))
+r5b <- run_script(f5b)
+stopifnot("GPU input without the dropped metric columns must still build" = r5b$status == 0)
+pass("GPU internal emit without kwh/fail_h/wkill_h/residle_h/vram_h still builds (no longer read)")
 
 # =====================================================================
 # 6) window3 must end at the calendar month just closed, not merely
@@ -391,7 +360,7 @@ pass("window3 ending at the month just closed (1 month back) passes the lag guar
 
 # =====================================================================
 # 7) Community membership (contract v3): distinct users/groups per
-#    (M:, P3, P6, ALL) window key, for both pools -- CPU from its own
+#    (M:, ALL) window key, for both pools -- CPU from its own
 #    internal emit's (p, user, proj) columns, GPU from the NEW internal
 #    de-identified emit's (p, user, proj) columns.
 #
@@ -449,8 +418,6 @@ check_comm <- function(key, pool, users, groups) {
 # CPU: its own month list is the full 7, so nothing is ever reduced --
 # every window kind is a genuinely different count (2 / 6 / 12 / 14).
 for (m in months7) check_comm(paste0("M:", m), "cpu", 2, 2)
-check_comm("P3",  "cpu", 6, 6)    # prev3..prev1
-check_comm("P6",  "cpu", 12, 12)  # prev6..prev1
 check_comm("ALL", "cpu", 14, 14)  # prev7..prev1
 # GPU: its own month list excludes prev7/prev6, so those two M: keys are
 # 0/0 even though the internal emit has rows for them; P6 (raw prev6..prev1)
@@ -458,10 +425,9 @@ check_comm("ALL", "cpu", 14, 14)  # prev7..prev1
 check_comm(paste0("M:", prev7), "gpu", 0, 0)
 check_comm(paste0("M:", prev6), "gpu", 0, 0)
 for (m in months5_gpu) check_comm(paste0("M:", m), "gpu", 2, 2)
-check_comm("P3",  "gpu", 6, 6)    # prev3..prev1 (already inside GPU's own range)
-check_comm("P6",  "gpu", 10, 10)  # reduced from raw prev6..prev1 to GPU's own prev5..prev1
-check_comm("ALL", "gpu", 10, 10)  # RULING: intersected with GPU's own months -- equals P6 here
-pass("community counts intersect the window with each pool's OWN published months (7-month, unequal-per-pool fixture): CPU's four window kinds all differ; GPU's prev7/prev6 M: keys are 0/0 and its P6==ALL, exactly as ruled")
+check_comm("ALL", "gpu", 10, 10)  # RULING: intersected with GPU's own months (prev5..prev1)
+stopifnot("no P3/P6 rows (dropped in contract v5)" = !any(comm7[, 1] %in% c("P3", "P6")))
+pass("community counts intersect the window with each pool's OWN published months (7-month, unequal-per-pool fixture): GPU's prev7/prev6 M: keys are 0/0 and its ALL covers only its own 5 months")
 
 # no fixture user code or project name may leak into the emitted JSON text,
 # including the GPU codes for prev7/prev6 that never counted toward anything
@@ -475,51 +441,8 @@ stopifnot("no fixture user code or project name may appear in the emitted JSON t
 pass("no fixture user code or project name leaks into the emitted cluster_data.json text")
 
 # =====================================================================
-# 8) capacity_monthly: cap_h prorated by days for a unit installed
-#    mid-month and a unit retired mid-month, alongside an always-on unit
-#    and units wholly outside the month (before install / already
-#    retired) that must contribute zero. Checked against prev1 (part of
-#    the default months3 window).
+# 8) (removed 2026-11-15 with capacity_monthly)
 # =====================================================================
-dim1 <- days_in_month(prev1)
-mid_install     <- format(month_start(prev1) + 10, "%Y-%m-%d")   # 11th day of prev1
-mid_retire      <- format(month_start(prev1) + 15, "%Y-%m-%d")   # active through the 15th day
-future_install  <- format(month_end(prev1)   + 5,  "%Y-%m-%d")   # installed after prev1 ends
-
-prorate_cpu_inv <- data.frame(
-  host = c("full","mid-install","mid-retire","future","long-retired"),
-  server_model = rep("ModelX", 5), cpu_type = rep("TypeA", 5),
-  ncpu = c(5, 10, 20, 999, 999), mem_gb = rep(100, 5),
-  install_date = c("2015-01-01", mid_install, "2015-01-01", future_install, "2015-01-01"),
-  retired      = c("",           "",           mid_retire,  "",             "2019-01-01"),
-  stringsAsFactors = FALSE
-)
-mid_install_g <- format(month_start(prev1) + 5,  "%Y-%m-%d")
-mid_retire_g  <- format(month_start(prev1) + 20, "%Y-%m-%d")
-prorate_gpu_inv <- data.frame(
-  host = c("full","mid-install","mid-retire"),
-  server_model = rep("GModelX", 3), cpu_type = rep("TypeA", 3),
-  gpu_type = rep("H200", 3), gpus = c(2, 4, 1), gpu_mem_gb = rep(80, 3),
-  install_date = c("2015-01-01", mid_install_g, "2015-01-01"),
-  retired      = c("",           "",             mid_retire_g),
-  stringsAsFactors = FALSE
-)
-f8 <- make_fixture(cpu_inv_in = prorate_cpu_inv, gpu_inv_in = prorate_gpu_inv)
-r8 <- run_script(f8)
-stopifnot("proration fixture run must exit 0" = r8$status == 0)
-out8 <- fromJSON(file.path(f8$fx, "output", "cluster_data.json"), simplifyVector = TRUE, simplifyMatrix = TRUE)
-cm8 <- out8$capacity_monthly
-r_cpu8 <- cm8[cm8[, 1] == prev1 & cm8[, 2] == "cpu", , drop = FALSE]
-stopifnot(nrow(r_cpu8) == 1)
-expect_cpu8 <- (dim1 * 5 * 24) + ((dim1 - 10) * 10 * 24) + (15 * 20 * 24)   # future/long-retired contribute 0
-stopifnot("cpu capacity_monthly cap_h must prorate mid-month install/retire by days" =
-            abs(as.numeric(r_cpu8[1, 3]) - expect_cpu8) < 0.01)
-r_gpu8 <- cm8[cm8[, 1] == prev1 & cm8[, 2] == "gpu", , drop = FALSE]
-stopifnot(nrow(r_gpu8) == 1)
-expect_gpu8 <- (dim1 * 2 * 24) + ((dim1 - 5) * 4 * 24) + (20 * 1 * 24)
-stopifnot("gpu capacity_monthly cap_h must prorate mid-month install/retire by days" =
-            abs(as.numeric(r_gpu8[1, 3]) - expect_gpu8) < 0.01)
-pass("capacity_monthly cap_h prorates mid-month install/retire dates by days; units before install or already retired contribute 0")
 
 # =====================================================================
 # 9) capacity.{cpu,gpu}.added_12m: nominal units (cores/gpus, not rows)
@@ -594,7 +517,8 @@ r11 <- run_script(f11)
 stopifnot("partial-first-month fixture must exit 0" = r11$status == 0)
 out11 <- fromJSON(file.path(f11$fx, "output", "cluster_data.json"), simplifyVector = TRUE, simplifyMatrix = TRUE)
 stopifnot("GPU months must drop prev2 (emit starts on its 4th day)" = identical(as.character(out11$meta$months_gpu), prev1))
-stopifnot("gpu_monthly must carry only prev1 rows" = all(out11$gpu_monthly[, 1] == prev1) && nrow(out11$gpu_monthly) == 2)
+mo11g <- out11$monthly[out11$monthly[, 2] == "gpu", , drop = FALSE]
+stopifnot("monthly must carry only a prev1 row for gpu" = nrow(mo11g) == 1 && mo11g[1, 1] == prev1)
 stopifnot("CPU months are unaffected" = setequal(out11$meta$months_cpu, c(prev2, prev1)))
 stopifnot("window3 shrinks to the common month" = identical(as.character(out11$meta$window3), prev1))
 r11c <- out11$community
@@ -690,7 +614,10 @@ stopifnot("gpu weekly sums land on the right Mondays" = held_gpu[1] == 21 && hel
 stopifnot("weekly names carry no forbidden key" = !any(c("proj", "user", "host", "code", "codename") %in% names(out12)))
 pass("weekly: dense complete-week rows per pool, ISO keys decoded to Mondays across a year boundary, out-of-bounds weeks ignored, per-pool bounds")
 
-stopifnot("meta.contract must be 4" = as.numeric(out12$meta$contract) == 4)
-pass("meta.contract == 4")
+mo12 <- out12$monthly
+stopifnot("monthly cpu rows: one per published month (14), held 10 each" =
+            identical(mo12[mo12[, 2] == "cpu", 1], months14) && all(as.numeric(mo12[mo12[, 2] == "cpu", 3]) == 10))
+stopifnot("monthly gpu rows: only its own published months (8)" = identical(mo12[mo12[, 2] == "gpu", 1], months_gpu_pub))
+pass("monthly covers each pool's own published months, in order")
 
 cat("\nALL TESTS PASSED\n")

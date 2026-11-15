@@ -25,14 +25,24 @@
 // published months, held_h ≥ 0, Σ within 5 % of the pool's monthly Σheld_h;
 // meta.contract === 4. The gate never read the GPU public emit and still doesn't.
 //
+// Contract v5 (2026-11-15): top-level keys meta, capacity, monthly, community,
+// weekly and nothing else. `monthly` [month, pool, held_h], exactly one row per
+// published month per pool; community keys "M:<month>" and "ALL" only (every
+// month <= ALL). Gone: cpu_monthly, gpu_monthly, headline (and its conservation
+// check), capacity_monthly, P3/P6. `capacity` may hold only cpu and gpu, each
+// with numeric totals. The built page may carry no JSON object with this file's
+// keys, and every chart figure must carry its public rounding. A page that
+// passes writes `.gate-pass` (its git blob hash) beside it; deploy.sh publishes
+// nothing else.
+//
 // Usage: node gate_cluster.mjs <cluster_data.json> [built_html]
 //   - called before build with just the json (data-layer gate)
 //   - called after build with the html too (page gate)
 // Vocab + blocklist sources: sibling clones' config/ CSVs and (contract v3)
 // output/portal_data.json internal emits (env-overridable, same PUB_CPU_CLONE
 // / PUB_GPU_CLONE vars 50_cluster_data.R reads).
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync, writeFileSync, rmSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 
 const [dataPath, htmlPath] = process.argv.slice(2);
@@ -71,7 +81,6 @@ const CPU_MODELS = setOf(cpuInv, 'cpu_type');          // capacity.cpu.types[].l
 const CPU_SERVERS = setOf(cpuInv, 'server_model');     // capacity.cpu.types[].server vocab
 const CARDS = new Set([...setOf(gpuInv, 'gpu_type'), ...setOf(gpuHosts, 'gpu_type')]);   // gpu label/card vocab
 const GPU_SERVERS = setOf(gpuInv, 'server_model');     // capacity.gpu.types[].server vocab
-const NODE_CLASSES = setOf(cpuHosts, 'node_class');    // cpu_monthly[].node_class vocab
 const HOSTNAMES = [...new Set([
   ...cpuInv.map((r) => r.host), ...cpuHosts.map((r) => r.host),
   ...gpuInv.map((r) => r.host), ...gpuHosts.map((r) => r.host),
@@ -118,7 +127,7 @@ try { rawText = readFileSync(dataPath, 'utf8'); data = JSON.parse(rawText); }
 catch (e) { bad(`cannot read/parse ${dataPath}: ${e.message}`); }
 
 if (data) {
-  const TOP = ['meta', 'capacity', 'cpu_monthly', 'gpu_monthly', 'headline', 'community', 'capacity_monthly', 'weekly'];
+  const TOP = ['meta', 'capacity', 'monthly', 'community', 'weekly'];
   for (const k of Object.keys(data)) if (!TOP.includes(k)) bad(`unexpected top-level key: ${k}`);
   for (const k of TOP) if (!(k in data)) bad(`missing top-level key: ${k}`);
 
@@ -127,7 +136,7 @@ if (data) {
   for (const k of Object.keys(meta)) if (!META_KEYS.includes(k)) bad(`unexpected meta key: ${k}`);
   if (!DATE.test(meta.updated)) bad(`meta.updated not YYYY-MM-DD: ${meta.updated}`);
   if (meta.public !== true) bad('meta.public is not true');
-  if (Number(meta.contract) !== 4) bad(`meta.contract must be 4: ${meta.contract}`);
+  if (Number(meta.contract) !== 5) bad(`meta.contract must be 5: ${meta.contract}`);
   for (const listKey of ['months_cpu', 'months_gpu', 'window3']) {
     for (const m of meta[listKey] || []) if (!PERIOD.test(m)) bad(`meta.${listKey}: bad period: ${m}`);
   }
@@ -137,12 +146,19 @@ if (data) {
   if (window3.size < 1 || window3.size > 3) bad(`meta.window3 has ${window3.size} months (want 1..3)`);
 
   // ---- capacity ----
+  for (const k of Object.keys(data.capacity || {})) if (!POOLS.has(k)) bad(`unexpected capacity key: ${k}`);
   const capCheck = (group, keys, modelSet, serverSet, totalKey) => {
     const c = (data.capacity || {})[group];
     if (!c) { bad(`missing capacity.${group}`); return; }
     for (const k of Object.keys(c)) if (!keys.includes(k)) bad(`unexpected capacity.${group} key: ${k}`);
     for (const k of keys) if (!(k in c)) bad(`missing capacity.${group}.${k}`);
-    for (const row of c.types || []) {
+    for (const k of keys.filter((k) => k !== 'types')) {   // counts are whole; *_gb may carry a fraction
+      const v = c[k];
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || (!k.endsWith('_gb') && !Number.isInteger(v)))
+        bad(`capacity.${group}.${k} is not a non-negative ${k.endsWith('_gb') ? 'number' : 'integer'}: ${JSON.stringify(v)}`);
+    }
+    if (!Array.isArray(c.types)) bad(`capacity.${group}.types is not a list`);
+    for (const row of Array.isArray(c.types) ? c.types : []) {
       if (row.length !== 5) { bad(`capacity.${group}.types: row length ${row.length} != 5`); continue; }
       const [label, server, count, per_node, per_node_ram_gb] = row;
       if (!modelSet.has(label)) bad(`capacity.${group}.types: unknown label: ${label}`);
@@ -157,34 +173,28 @@ if (data) {
   capCheck('cpu', ['nodes', 'cores', 'ram_gb', 'types', 'added_12m'], CPU_MODELS, CPU_SERVERS, 'cores');
   capCheck('gpu', ['nodes', 'gpus', 'vram_gb', 'types', 'added_12m'], CARDS, GPU_SERVERS, 'gpus');
 
-  // ---- monthly tables ----
-  // contract v2 row shape: [month, class, ...numFields] -- numFields named in
-  // order so a bad value's error message names the actual field, not an index.
-  const CPU_NUM_FIELDS = ['held_h', 'utilized_h', 'fail_h', 'wkill_h', 'njobs', 'wa_used_h', 'wa_req_h'];
-  const GPU_NUM_FIELDS = ['held_h', 'real_h', 'residle_h', 'kwh', 'vram_h', 'fail_h', 'wkill_h', 'njobs'];
-  const monthlyCheck = (rows, name, classSet, monthSet, numFields) => {
-    const width = 2 + numFields.length;
-    for (const row of rows || []) {
-      if (row.length !== width) { bad(`${name}: row length ${row.length} != ${width}`); continue; }
-      const [m, cls, ...nums] = row;
-      if (!PERIOD.test(m)) bad(`${name}: bad period: ${m}`);
-      else if (!monthSet.has(m)) bad(`${name}: period out of meta's month list: ${m}`);
-      if (!classSet.has(cls)) bad(`${name}: unknown value: ${cls}`);
-      numFields.forEach((fname, i) => {
-        const v = nums[i];
-        if (!(Number.isFinite(Number(v)) && Number(v) >= 0)) bad(`${name}: bad ${fname}: ${v}`);
-      });
+  // ---- monthly: [month, pool, held_h], exactly one row per published month per pool ----
+  const monthlySeen = new Map();
+  for (const row of data.monthly || []) {
+    if (row.length !== 3) { bad(`monthly: row length ${row.length} != 3`); continue; }
+    const [m, pool, held_h] = row;
+    if (!POOLS.has(pool)) bad(`monthly: unknown pool: ${pool}`);
+    if (!PERIOD.test(m)) bad(`monthly: bad period: ${m}`);
+    else if ((pool === 'cpu' && !monthsCpu.has(m)) || (pool === 'gpu' && !monthsGpu.has(m))) bad(`monthly: period out of meta's ${pool} month list: ${m}`);
+    if (typeof held_h !== 'number' || !(held_h >= 0)) bad(`monthly: bad held_h: ${JSON.stringify(held_h)}`);
+    monthlySeen.set(`${m}|${pool}`, (monthlySeen.get(`${m}|${pool}`) || 0) + 1);
+  }
+  for (const [pool, months] of [['cpu', monthsCpu], ['gpu', monthsGpu]])
+    for (const m of months) {
+      const cnt = monthlySeen.get(`${m}|${pool}`) || 0;
+      if (cnt !== 1) bad(`monthly: expected exactly 1 row for month ${m} / pool ${pool}, found ${cnt}`);
     }
-  };
-  monthlyCheck(data.cpu_monthly, 'cpu_monthly', NODE_CLASSES, monthsCpu, CPU_NUM_FIELDS);
-  monthlyCheck(data.gpu_monthly, 'gpu_monthly', CARDS, monthsGpu, GPU_NUM_FIELDS);
 
   // ---- community: [window_key, pool, users, groups] ----
-  // window_key vocab mirrors build_cluster_page.R's own windows: "M:<month>" for
-  // each month in meta.months_cpu/months_gpu, plus "P3"/"P6"/"ALL".
+  // window_key vocab: "M:<month>" for each month in meta.months_cpu/months_gpu, plus "ALL".
   const COMMUNITY_KEYS = new Set([
     ...[...monthsCpu, ...monthsGpu].map((m) => `M:${m}`),
-    'P3', 'P6', 'ALL',
+    'ALL',
   ]);
   const commByKeyPool = new Map();
   const commCount = new Map();
@@ -200,52 +210,20 @@ if (data) {
     commCount.set(mapKey, (commCount.get(mapKey) || 0) + 1);
   }
   // completeness: every whitelisted window key x pool pair must appear exactly
-  // once -- an empty/partial `community` (or one missing just P6, say) passes
-  // the checks above silently otherwise, and severs the monotone chain below
-  // without a trace.
+  // once -- an empty/partial `community` passes the checks above silently otherwise.
   for (const key of COMMUNITY_KEYS) for (const pool of POOLS) {
     const cnt = commCount.get(`${key}|${pool}`) || 0;
     if (cnt !== 1) bad(`community: expected exactly 1 row for window ${key} / pool ${pool}, found ${cnt}`);
   }
-  // monotone per pool: P3 <= P6 <= ALL, checked as three direct pairs (not just
-  // adjacent) so a single broken/missing link can't hide a P3 > ALL violation.
+  // monotone per pool: every month <= ALL.
   for (const pool of POOLS) {
-    const p3 = commByKeyPool.get(`P3|${pool}`), p6 = commByKeyPool.get(`P6|${pool}`), all = commByKeyPool.get(`ALL|${pool}`);
-    if (p3 && p6 && !(p3.users <= p6.users && p3.groups <= p6.groups)) bad(`community: P3 > P6 for pool ${pool}`);
-    if (p6 && all && !(p6.users <= all.users && p6.groups <= all.groups)) bad(`community: P6 > ALL for pool ${pool}`);
-    if (p3 && all && !(p3.users <= all.users && p3.groups <= all.groups)) bad(`community: P3 > ALL for pool ${pool}`);
+    const all = commByKeyPool.get(`ALL|${pool}`);
     if (all) {
       for (const [mapKey, v] of commByKeyPool) {
         if (!mapKey.startsWith('M:') || !mapKey.endsWith(`|${pool}`)) continue;
         if (!(v.users <= all.users && v.groups <= all.groups)) bad(`community: ${mapKey.split('|')[0]} > ALL for pool ${pool}`);
       }
     }
-  }
-
-  // ---- capacity_monthly: [month, pool, cap_h] ----
-  // month whitelisted against that pool's OWN published month list (matches
-  // cpu_monthly/gpu_monthly's own coverage, not the wider community union).
-  const capMonthlyCount = new Map();
-  for (const row of data.capacity_monthly || []) {
-    if (row.length !== 3) { bad(`capacity_monthly: row length ${row.length} != 3`); continue; }
-    const [m, pool, cap_h] = row;
-    if (!POOLS.has(pool)) bad(`capacity_monthly: unknown pool: ${pool}`);
-    if (!PERIOD.test(m)) bad(`capacity_monthly: bad period: ${m}`);
-    else if (pool === 'cpu' && !monthsCpu.has(m)) bad(`capacity_monthly: period out of meta's cpu month list: ${m}`);
-    else if (pool === 'gpu' && !monthsGpu.has(m)) bad(`capacity_monthly: period out of meta's gpu month list: ${m}`);
-    if (!(Number.isFinite(Number(cap_h)) && Number(cap_h) > 0)) bad(`capacity_monthly: bad cap_h: ${cap_h}`);
-    capMonthlyCount.set(`${m}|${pool}`, (capMonthlyCount.get(`${m}|${pool}`) || 0) + 1);
-  }
-  // completeness: exactly one capacity_monthly row per pool per month of that
-  // pool's own monthly (hour) table -- an empty/partial capacity_monthly
-  // otherwise passes silently.
-  for (const m of monthsCpu) {
-    const cnt = capMonthlyCount.get(`${m}|cpu`) || 0;
-    if (cnt !== 1) bad(`capacity_monthly: expected exactly 1 row for month ${m} / pool cpu, found ${cnt}`);
-  }
-  for (const m of monthsGpu) {
-    const cnt = capMonthlyCount.get(`${m}|gpu`) || 0;
-    if (cnt !== 1) bad(`capacity_monthly: expected exactly 1 row for month ${m} / pool gpu, found ${cnt}`);
   }
 
   // ---- weekly: [monday, pool, held_h] (contract v4, R6.3/R6.4) ----
@@ -295,42 +273,12 @@ if (data) {
   // sanity: per pool, Σ weekly held_h within 5% of Σ monthly held_h. The dropped
   // edge days (a partial first/last week) are <= 2% of a year-plus record; a
   // wrong column or grain is far off.
-  const monthlyHeld = (rows) => (rows || []).reduce((s, r) => s + Number(r[2]), 0);
-  for (const [pool, rows] of [['cpu', data.cpu_monthly], ['gpu', data.gpu_monthly]]) {
-    const m = monthlyHeld(rows);
+  for (const pool of POOLS) {
+    const m = (data.monthly || []).filter((r) => r[1] === pool).reduce((t, r) => t + Number(r[2]), 0);
     if (m > 0 && Math.abs(weeklyHeld[pool] - m) / m > 0.05)
       bad(`weekly: ${pool} Σheld_h ${weeklyHeld[pool]} is more than 5% off the monthly Σheld_h ${m}`);
   }
 
-  // ---- headline ----
-  const HEADLINE_KEYS = ['cpu_core_h', 'gpu_h', 'jobs'];
-  for (const k of Object.keys(data.headline || {})) if (!HEADLINE_KEYS.includes(k)) bad(`unexpected headline key: ${k}`);
-  for (const k of HEADLINE_KEYS) if (!(k in (data.headline || {}))) bad(`missing headline.${k}`);
-
-  // ---- 3. conservation: headline must equal window3's slice of the monthly tables --
-  const TOL = 0.1;   // per-class rounding in cpu_monthly/gpu_monthly vs the direct headline sum
-  // held_h always sits at index 2 (contract v2: [month, class, held_h, ...]); njobs'
-  // index depends on the row's width (it isn't last in cpu_monthly's field order).
-  const sumWindow = (rows, njobsIdx) => {
-    let held = 0, njobs = 0;
-    for (const row of rows || []) {
-      if (window3.has(row[0])) { held += Number(row[2]); njobs += Number(row[njobsIdx]); }
-    }
-    return { held, njobs };
-  };
-  const cpuSum = sumWindow(data.cpu_monthly, 2 + CPU_NUM_FIELDS.indexOf('njobs'));
-  const gpuSum = sumWindow(data.gpu_monthly, 2 + GPU_NUM_FIELDS.indexOf('njobs'));
-  const h = data.headline || {};
-  // Number.isFinite guard first: Number(NaN-ish) > TOL is false, so an unguarded
-  // Math.abs(...) > TOL would silently pass a non-numeric headline value instead
-  // of flagging it (matches the finite check monthlyCheck already does above).
-  const closeEnough = (recomputed, val) => Number.isFinite(Number(val)) && Math.abs(recomputed - Number(val)) <= TOL;
-  if (!closeEnough(cpuSum.held, h.cpu_core_h))
-    bad(`conservation: cpu_core_h: recomputed ${cpuSum.held} != headline ${h.cpu_core_h}`);
-  if (!closeEnough(gpuSum.held, h.gpu_h))
-    bad(`conservation: gpu_h: recomputed ${gpuSum.held} != headline ${h.gpu_h}`);
-  if (cpuSum.njobs + gpuSum.njobs !== Number(h.jobs))
-    bad(`conservation: jobs: recomputed ${cpuSum.njobs + gpuSum.njobs} != headline ${h.jobs}`);
 }
 
 // ---- 2. blocklist scan (json text + optional built html) ----------------
@@ -386,6 +334,9 @@ for (const [label, text] of texts) {
 // totals to the nearest 10. Any figure in those phrasings that is not rounded fails. ----
 if (texts.length > 1) {
   const html = decodeEntities(texts[1][1]);
+  // the page embeds no data object (2026-11-15): no JSON key of this file's shape may appear
+  const embedded = html.match(/"(?:meta|capacity|monthly|community|weekly|months_cpu|months_gpu|window3|cpu_monthly|gpu_monthly|headline|capacity_monthly)"\s*:/);
+  if (embedded) bad(`html: embedded data object found (${embedded[0]})`);
   const num = (s) => Number(s.replace(/,/g, ''));
   const sig2 = (x) => (x < 100 ? Math.round(x) : (p => Math.round(x / p) * p)(10 ** (Math.floor(Math.log10(x)) - 1)));
   const offSig2 = (x) => sig2(x) !== x;
@@ -400,7 +351,15 @@ if (texts.length > 1) {
 }
 
 if (errs.length) {
+  if (htmlPath) rmSync(join(dirname(htmlPath), '.gate-pass'), { force: true });   // a failed page leaves no stamp behind
   for (const e of errs) console.error('gate_cluster: FAIL ' + e);
   process.exit(1);
 }
-console.log(`gate_cluster: PASS — cpu_monthly ${data.cpu_monthly.length} / gpu_monthly ${data.gpu_monthly.length} rows, community ${data.community.length} / capacity_monthly ${data.capacity_monthly.length} rows, weekly ${data.weekly.length} rows${htmlPath ? ', html scanned' : ''}`);
+// a passing page earns a stamp: its git blob hash, which deploy.sh compares with
+// `git hash-object index.html` before publishing anything
+if (htmlPath) {
+  const buf = readFileSync(htmlPath);
+  const blob = createHash('sha1').update(`blob ${buf.length}\0`).update(buf).digest('hex');
+  writeFileSync(join(dirname(htmlPath), '.gate-pass'), blob + '\n');
+}
+console.log(`gate_cluster: PASS — contract 5, monthly ${data.monthly.length} / community ${data.community.length} / weekly ${data.weekly.length} rows${htmlPath ? ', html scanned, stamped' : ''}`);
