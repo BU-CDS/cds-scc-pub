@@ -535,7 +535,10 @@ const buildFixturePage = (mutator) => {
 
 // ---- 21. negative: no user code or project name from either internal
 // de-identified emit (read fresh at test time, mirroring scripts/gate_cluster.mjs's
-// own leak-check reader) appears anywhere in the page ----
+// own leak-check reader) appears anywhere in the page. Same rule as the gate (2026-11-15):
+// whole words, any case, HTML entities decoded, embedded base64 assets skipped (fixed font
+// and image files carry no data). A bare substring test failed on a 2-character project
+// name inside "<head>" and a 3-character one inside an image. ----
 {
   const PUB_CPU_CLONE = process.env.PUB_CPU_CLONE || '/usr3/bustaff/mhorn/repos/cpu-cds-scc';
   const PUB_GPU_CLONE = process.env.PUB_GPU_CLONE || '/usr3/bustaff/mhorn/repos/gpu-cds-scc';
@@ -560,8 +563,13 @@ const buildFixturePage = (mutator) => {
   (userCodes.length > 0 && projectNames.length > 0)
     ? ok('leak-check blocklist loaded from both internal emits (' + userCodes.length + ' user codes, ' + projectNames.length + ' project names)')
     : bad('leak-check blocklist is empty -- internal emit unreadable/unusable');
-  const leakedUsers = userCodes.filter((u) => html.includes(u));
-  const leakedProjects = projectNames.filter((p) => html.includes(p));
+  const ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+  const scanText = html.replace(/data:[a-z0-9\/+.-]+;base64,[A-Za-z0-9+\/=]+/gi, 'data:')
+    .replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (m, e) => e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10)) : (ENT[e.toLowerCase()] ?? m));
+  const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const hit = (v) => new RegExp('\\b' + escRe(v) + '\\b', 'i').test(scanText);
+  const leakedUsers = userCodes.filter(hit);
+  const leakedProjects = projectNames.filter(hit);
   leakedUsers.length === 0 ? ok('no internal-emit user code appears anywhere in the page') : bad('user code(s) leaked into the page: ' + leakedUsers.length + ' hit(s)');
   leakedProjects.length === 0 ? ok('no internal-emit project name appears anywhere in the page') : bad('project name(s) leaked into the page: ' + leakedProjects.length + ' hit(s)');
 }

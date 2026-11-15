@@ -289,6 +289,9 @@ assert(run(bad) === 1, 'meta.contract != 4 fails'); pass('meta.contract must be 
 // the generic u-\d+ pattern, so exit-code-1 alone wouldn't prove this check
 // (rather than an old one) actually fired.
 {
+  const r0 = runWith(goodData, '<html><img src="data:image/png;base64,AAAA+fixture-proj-a+BBBB"></html>');
+  assert(r0.status === 0, 'a blocked name inside an embedded base64 asset is not a leak');
+  pass('a blocked name inside an embedded base64 asset is not a leak');
   const r = runWith(goodData, '<html>usage reported for fixture-proj-a this quarter</html>');
   assert(r.status === 1, 'fixture project name (CPU internal emit) leaking into html fails');
   assert(r.stderr.includes('leaked project name'), 'failure names the project-name category');

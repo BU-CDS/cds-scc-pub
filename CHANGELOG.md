@@ -4,6 +4,17 @@ All notable changes to the public cluster page.
 
 ## 2026-11-15
 
+- **Leak check: whole words, base64 assets skipped** (2026-11-15,
+  `scripts/test_page.mjs`, `scripts/gate_cluster.mjs`, `scripts/test_gate.mjs`):
+  the SCC dry run failed test_page's project-name check on names that were not
+  leaks. The internal data now holds a 2-character project name, which matched
+  inside "<head>" and elsewhere 445 times, and a 3-character one that matched
+  once inside an embedded image; the October page fails the same way against
+  today's data. test_page now uses the gate's rule (whole words, any case, HTML
+  entities decoded), and both skip embedded base64 assets, which come from fixed
+  files. A name that appears as a word on the page still fails both; test_gate
+  pins a name inside a base64 asset passing.
+
 - **Page: the Over-time figures are rounded before they are drawn** (2026-11-15,
   `build_cluster_page.R`, `scripts/gate_cluster.mjs`, `scripts/test_page.mjs`,
   `scripts/test_gate.mjs`): weekly reserved hours keep two significant figures

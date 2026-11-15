@@ -337,7 +337,9 @@ if (data) {
 const texts = [['cluster_data.json', rawText ?? '']];
 if (htmlPath) {
   if (!existsSync(htmlPath)) bad(`html not found: ${htmlPath}`);
-  else texts.push(['html', readFileSync(htmlPath, 'utf8')]);
+  // embedded base64 assets (fonts, plate, emblem, favicon) come from fixed files and carry no
+  // data; skipping them stops a short name from matching inside random base64 by chance.
+  else texts.push(['html', readFileSync(htmlPath, 'utf8').replace(/data:[a-z0-9\/+.-]+;base64,[A-Za-z0-9+\/=]+/gi, 'data:')]);
 }
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // single-pass HTML entity decode (named + numeric/hex) so a value present only
