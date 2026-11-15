@@ -123,7 +123,7 @@ T10="$WORK/t10"; mkrepo "$T10"
 TW="$WORK/t10wt"; git -C "$T10" worktree add -q "$TW" page && echo secret > "$TW/stray.csv" \
   && git -C "$TW" add stray.csv && git -C "$TW" -c commit.gpgsign=false commit -q --amend --no-edit && git -C "$T10" worktree remove --force "$TW"
 ( cd "$T10" && DEPLOY_PUSH=0 ./deploy.sh ) >/dev/null 2>&1 || bad "manifest deploy failed"
-files="$(git -C "$T10" ls-tree --name-only page | sort | tr '\n' ' ')"
+files="$(git -C "$T10" ls-tree --name-only page | LC_ALL=C sort | tr '\n' ' ')"
 [ "$files" = ".nojekyll CNAME index.html " ] && ok "page branch holds exactly index.html, .nojekyll, CNAME" \
   || bad "page branch files: $files"
 # clean page stages without pushing
