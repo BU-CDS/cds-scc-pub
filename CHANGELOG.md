@@ -4,6 +4,18 @@ All notable changes to the public cluster page.
 
 ## 2026-11-15
 
+- **Open items after the red-team, closed** (2026-11-15): a walk through the
+  items left after the public-page red-team and the contract 5 merge. (1) The
+  CPU growth note counted cores but said nodes; it now says cores (entry
+  below). (2) Old copies of the page: the Wayback Machine and archive.today
+  hold none. The repository's own history did: early `main` commits carried a
+  GPU data snapshot (`data/public_data.json`) and a page copy, so `main` was
+  rewritten without `data/` and `index.html` and force-pushed. Every commit and
+  message is kept and today's files are identical, but **all commit IDs before
+  this date changed**: re-clone, or `git fetch && git reset --hard
+  origin/main`. The merged work branches were deleted. (3) The Whitney font
+  licence does not cover a public, self-contained copy, so the font is gone
+  (entry below). (4) The merged worktrees and branches were removed.
 - **Page: no embedded Whitney font** (2026-11-15, `build_cluster_page.R`,
   `scripts/test_page.mjs`, `README.md`): the page embedded BU's Whitney SSm A
   Semibold and Book webfonts, copied from bu.edu/cdn/fonts, for the header
