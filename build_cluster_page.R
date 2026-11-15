@@ -133,8 +133,10 @@ cpu_panel <- panel_html(d$capacity$cpu$types, "cpu")
 
 # R5.2: a data-driven growth note in a pool panel's <h3>, right-aligned by the
 # .pool h3 flex rule -- rendered ONLY when that pool's added_12m is > 0
-# (maintainer ruling 2026-09-01); no <span> at all otherwise.
-GROWTH_WORD <- list(cpu = c(singular = "node", plural = "nodes"), gpu = c(singular = "GPU", plural = "GPUs"))
+# (maintainer ruling 2026-09-01); no <span> at all otherwise. added_12m counts units,
+# not servers: GPUs for the GPU pool, cores for the CPU pool (the CPU explorer's own
+# unit; it said "nodes" until 2026-11-15).
+GROWTH_WORD <- list(cpu = c(singular = "core", plural = "cores"), gpu = c(singular = "GPU", plural = "GPUs"))
 growth_note <- function(pool, n) {
   n <- suppressWarnings(as.integer(n))
   if (is.na(n) || n <= 0) return("")

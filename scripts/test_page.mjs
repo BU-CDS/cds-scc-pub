@@ -449,8 +449,8 @@ has(styleBlock, '.liveupd a:hover{color:var(--used);text-decoration-color:curren
 
 // ---- 20. R5.2 growth note: a pool panel's <h3> ("GPU Pool" / "CPU Pool", not
 // the totals cards) carries a right-aligned, muted <span class="hnote"> reading
-// "{n} GPUs/GPU added in the past 12 months" (GPU) / "{n} nodes/node added in
-// the past 12 months" (CPU), rendered ONLY when that pool's added_12m is > 0;
+// "{n} GPUs/GPU added in the past 12 months" (GPU) / "{n} cores/core added in
+// the past 12 months" (CPU; added_12m counts cores, 2026-11-15), rendered ONLY when that pool's added_12m is > 0;
 // no .hnote at all otherwise. Checked against today's real data (present case:
 // GPU; absent case: CPU) ----
 {
@@ -459,7 +459,7 @@ has(styleBlock, '.liveupd a:hover{color:var(--used);text-decoration-color:curren
   const gpuAdded = Number(data.capacity.gpu.added_12m);
   const cpuAdded = Number(data.capacity.cpu.added_12m);
   const gpuWord = gpuAdded === 1 ? 'GPU' : 'GPUs';
-  const cpuWord = cpuAdded === 1 ? 'node' : 'nodes';
+  const cpuWord = cpuAdded === 1 ? 'core' : 'cores';
   if (gpuAdded > 0) {
     has(gpuPanelH3, '<span class="hnote">' + gpuAdded + ' ' + gpuWord + ' added in the past 12 months</span>', 'GPU panel <h3> carries the growth note span (added_12m=' + gpuAdded + ')');
   } else {
@@ -507,14 +507,13 @@ const buildFixturePage = (mutator) => {
 // genuinely data-driven, not hardcoded to "GPU always present / CPU always absent"
 {
   try {
-    const realCpuAdded = Number(data.capacity.cpu.added_12m);
-    const realGpuAdded = Number(data.capacity.gpu.added_12m);
     const { gpuH3: fGpuH3, cpuH3: fCpuH3 } = buildFixturePage((fixture) => {
-      fixture.capacity.cpu.added_12m = realGpuAdded > 0 ? realGpuAdded : 3;
+      fixture.capacity.cpu.added_12m = 32;   // one 32-core node
       fixture.capacity.gpu.added_12m = 0;
     });
     not(fGpuH3, 'class="hnote"', 'fixture (swapped): GPU panel <h3> carries no .hnote once its added_12m is 0');
-    has(fCpuH3, 'class="hnote"', 'fixture (swapped): CPU panel <h3> now carries the .hnote span once its added_12m is > 0 -- the note flips panels with the data');
+    has(fCpuH3, '<span class="hnote">32 cores added in the past 12 months</span>', 'fixture (swapped): CPU panel <h3> now carries the growth note, in cores, once its added_12m is > 0 -- the note flips panels with the data');
+    not(fCpuH3, 'nodes added', 'fixture (swapped): the CPU note never calls cores "nodes"');
   } catch (e) {
     bad('fixture (swapped) growth-note rebuild failed: ' + (e && e.message ? e.message : e));
   }
@@ -526,11 +525,11 @@ const buildFixturePage = (mutator) => {
   try {
     const { gpuH3: fGpuH3, cpuH3: fCpuH3 } = buildFixturePage((fixture) => {
       fixture.capacity.gpu.added_12m = 1;
-      fixture.capacity.cpu.added_12m = 0;
+      fixture.capacity.cpu.added_12m = 1;
     });
     has(fGpuH3, '<span class="hnote">1 GPU added in the past 12 months</span>', 'fixture (added_12m=1): GPU panel <h3> uses the singular "GPU" wording, not "GPUs"');
     not(fGpuH3, '1 GPUs added', 'fixture (added_12m=1): GPU panel <h3> never renders the plural "GPUs" wording for n=1');
-    not(fCpuH3, 'class="hnote"', 'fixture (added_12m=1): CPU panel <h3> still carries no .hnote (its added_12m stayed 0)');
+    has(fCpuH3, '<span class="hnote">1 core added in the past 12 months</span>', 'fixture (added_12m=1): CPU panel <h3> uses the singular "core" wording');
   } catch (e) {
     bad('fixture (added_12m=1) growth-note rebuild failed: ' + (e && e.message ? e.message : e));
   }

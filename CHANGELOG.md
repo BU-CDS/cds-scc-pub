@@ -4,6 +4,15 @@ All notable changes to the public cluster page.
 
 ## 2026-11-15
 
+- **Page: the CPU growth note says cores** (2026-11-15, `build_cluster_page.R`,
+  `scripts/test_page.mjs`): the CPU pool's "added in the past 12 months" number
+  sums the cores of newly installed nodes, but the note called them nodes, so
+  one 32-core node would have read "32 nodes added". It now reads "32 cores
+  added" ("1 core" for one), the unit the CPU explorer uses. Nothing wrong was
+  ever shown: the CPU pool has added no hardware in the past 12 months. Two page
+  fixtures now pin the CPU wording, plural and singular, since today's real data
+  shows no CPU note to test.
+
 - **Data contract 5: the export keeps only what the page and the gate read**
   (2026-11-15, `scripts/50_cluster_data.R`, `scripts/gate_cluster.mjs`,
   `scripts/test_cluster_data.R`, `scripts/test_gate.mjs`, `scripts/test_page.mjs`,
@@ -223,7 +232,8 @@ All notable changes to the public cluster page.
   ahead of the existing tiles, drawn from the new `community` and
   `capacity_monthly` tables. Each pool panel's header ("GPU Pool" / "CPU
   Pool") can also carry a right-aligned growth note -- "N GPUs added in the
-  past 12 months" / "N nodes added in the past 12 months" -- shown only
+  past 12 months" / "N nodes added in the past 12 months" (superseded
+  2026-11-15: the CPU number counts cores and now says so) -- shown only
   when that pool actually added hardware in the past year; a pool with no
   additions carries no note at all. The server-rendered default view and
   the page's own period-switching script compute every new number
