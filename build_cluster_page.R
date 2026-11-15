@@ -20,10 +20,11 @@
 # Assets (base64-embedded, read from the sibling clone, never copied in):
 #   $PUB_CPU_CLONE/assets/bu_plate_white.png
 #   $PUB_CPU_CLONE/assets/faculty_compt_data_sci_signature_toptier_rgb.png
-#   $PUB_CPU_CLONE/assets/WhitneySSmAdvancedSemibold.woff2   (weight 600)
-#   $PUB_CPU_CLONE/assets/WhitneySSmAdvancedBook.woff2       (weight 400)
+# No font is embedded (2026-11-15): BU licenses Whitney through MarCom and a Monotype web
+# project with page-view tracking, which a public, self-contained page cannot honour, so the
+# header uses the system sans stack like the rest of the page.
 # Own asset (base64-embedded; the one asset in this tree -- BU's public favicon carries none of
-# the licensing that keeps the fonts, plate and emblem in the sibling clone):
+# the licensing that keeps the plate and emblem in the sibling clone):
 #   assets/favicon.ico                                       (BU's favicon, 16x16 ICO)
 # Writes: index.html (repo root, gitignored)
 # Run: module load R/4.5.2 && Rscript build_cluster_page.R
@@ -47,8 +48,6 @@ b64 <- function(path) {
 }
 plate_uri     <- paste0("data:image/png;base64,", b64(file.path(PUB_CPU_CLONE, "assets", "bu_plate_white.png")))
 emblem_uri    <- paste0("data:image/png;base64,", b64(file.path(PUB_CPU_CLONE, "assets", "faculty_compt_data_sci_signature_toptier_rgb.png")))
-font_uri      <- paste0("data:font/woff2;base64,", b64(file.path(PUB_CPU_CLONE, "assets", "WhitneySSmAdvancedSemibold.woff2")))
-font_uri_book <- paste0("data:font/woff2;base64,", b64(file.path(PUB_CPU_CLONE, "assets", "WhitneySSmAdvancedBook.woff2")))
 favicon_uri   <- paste0("data:image/x-icon;base64,", b64(file.path(ROOT, "assets", "favicon.ico")))   # BU's own favicon (www.bu.edu/favicon.ico: 16x16 ICO, 318 bytes), declared inline so no load asks GitHub Pages for a /favicon.ico the page branch does not carry
 
 # ---- helpers ----------------------------------------------------------------
@@ -265,14 +264,8 @@ r"-----(<!DOCTYPE html>
  --ink:#2d2926;--text:#2d2926;--muted:#6b6158;--grid:#e8e3dd;--border:#dcd5cd;
  --used:#0b7468;--idle:#c0cad4;--ember:#b4451f;--headbg:#2d2926;--headfg:#ffffff;--shadow:rgba(15,30,45,.10);--hatch:rgba(20,30,42,.34);--busy:#dc2626;--free:#2563eb;--rule:#b7ada2;--hl:#fde68a;--amber:#e0a63e;--rust:#a0522d;
 }
-@font-face{font-family:"Whitney SSm A";font-weight:600;font-style:normal;font-display:swap;src:url(")-----",
-font_uri,
-r"-----(") format("woff2");}
-@font-face{font-family:"Whitney SSm A";font-weight:400;font-style:normal;font-display:swap;src:url(")-----",
-font_uri_book,
-r"-----(") format("woff2");}
 *{box-sizing:border-box}html{font-size:110%;}html,body{height:100%;}body{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;font-family:var(--t-sans);color:var(--text);margin:0;background:var(--bg);font-size:0.813rem;line-height:1.45;-webkit-font-smoothing:antialiased;}
-header{background:var(--headbg);color:var(--headfg);padding:12px var(--content-pad);position:relative;border-top:3px solid #cc0000;border-bottom:1px solid rgba(255,255,255,.08);}header h1{font-size:1rem;margin:0;font-weight:600;letter-spacing:-.01em;font-family:"Whitney SSm A",var(--t-sans);}.buplate{height:1.615em;vertical-align:-.449em;margin-right:.34em;}.orgname{font-weight:400;letter-spacing:0;}.hsep{color:rgba(255,255,255,.4);font-weight:400;padding:0 .6em;}
+header{background:var(--headbg);color:var(--headfg);padding:12px var(--content-pad);position:relative;border-top:3px solid #cc0000;border-bottom:1px solid rgba(255,255,255,.08);}header h1{font-size:1rem;margin:0;font-weight:600;letter-spacing:-.01em;}.buplate{height:1.615em;vertical-align:-.449em;margin-right:.34em;}.orgname{font-weight:400;letter-spacing:0;}.hsep{color:rgba(255,255,255,.4);font-weight:400;padding:0 .6em;}
 .hwrap{max-width:min(var(--content-max),98vw);margin:0 auto;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;}
 .hutils{position:absolute;top:10px;right:18px;display:flex;gap:8px;z-index:2;align-items:center;}.hbtn{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);color:var(--headfg);font:inherit;font-size:0.688rem;padding:3px 10px;border-radius:5px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;}.hbtn:hover{background:rgba(255,255,255,.2);}.gpuword{color:#baf72e;}.cpuword{color:#4cc9db;}.hbtn .gpuword,.hbtn .cpuword{margin-right:.28em;}@media(max-width:1000px){.hutils{position:static;justify-content:flex-end;margin-top:8px;}}
 @media(max-width:700px){.hsep{display:block;height:0;padding:0;overflow:hidden;}}@media(max-width:480px){header h1{font-size:0.9rem;}}   /* phone lockup (2026-09-03, explorers 4efaf6e / 8b9bd51): below 700px the title takes its own line under the plate and name (the separator becomes a zero-height block, which breaks the line and hides the bar) instead of the name wrapping mid-phrase; below 480px the h1 steps down so plate and name hold one line on a 375px phone */

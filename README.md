@@ -40,9 +40,9 @@ every step is green:
    any figure without its public rounding. A page that passes is stamped:
    `.gate-pass` holds its git blob hash.
 3. `build_cluster_page.R` — renders `index.html` (panels and over-time
-   charts; the JSON itself is not embedded) with the assets embedded:
-   fonts, plate and emblem from the CPU clone, the favicon from this repo's
-   own `assets/`.
+   charts; the JSON itself is not embedded) with the assets embedded: the
+   plate and emblem from the CPU clone, the favicon from this repo's own
+   `assets/`. No font is embedded; the page uses the system sans stack.
 4. `scripts/test_page.mjs` + `validate.mjs` — structure/containment tests and
    a run of the page's inline script under a DOM shim; the gate runs a second
    time over the built HTML.

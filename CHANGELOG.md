@@ -4,6 +4,18 @@ All notable changes to the public cluster page.
 
 ## 2026-11-15
 
+- **Page: no embedded Whitney font** (2026-11-15, `build_cluster_page.R`,
+  `scripts/test_page.mjs`, `README.md`): the page embedded BU's Whitney SSm A
+  Semibold and Book webfonts, copied from bu.edu/cdn/fonts, for the header
+  title. BU licenses Whitney through MarCom (desktop) and a Monotype web project
+  that counts page views; Monotype's guidance asks for usage reporting, a
+  licence scoped to the serving domain, and no font files in a public
+  repository. A public, self-contained page on GitHub meets none of those, and
+  the MarCom confirmation left open on 2026-08-30 never came. The header title
+  now uses the system sans stack, like the rest of the page, and the page
+  drops from 271 KB to 96 KB. test_page refuses any `@font-face`, font data
+  URI or Whitney name.
+
 - **Page: the CPU growth note says cores** (2026-11-15, `build_cluster_page.R`,
   `scripts/test_page.mjs`): the CPU pool's "added in the past 12 months" number
   sums the cores of newly installed nodes, but the note called them nodes, so

@@ -432,14 +432,20 @@ has(styleBlock, '.livewrap{margin:0 0 10px;padding:0;display:flex;flex-wrap:wrap
 has(styleBlock, '.liveupd a{color:inherit;text-decoration:underline;text-decoration-color:var(--muted);text-underline-offset:2px;}', '.liveupd a carries the underline-link styling');
 has(styleBlock, '.liveupd a:hover{color:var(--used);text-decoration-color:currentColor;}', '.liveupd a:hover carries the hover-color rule');
 
+// ---- 18a. no embedded font (2026-11-15): BU's Whitney licence (MarCom; a Monotype web
+// project with page-view tracking) does not cover a public, self-contained copy, so the page
+// carries no font file and names no Whitney face; the header uses the system sans stack ----
+for (const needle of ['@font-face', 'font/woff', 'Whitney'])
+  not(html, needle, 'no embedded font: "' + needle + '" appears nowhere in the page');
+
 // ---- 18. embedded assets are never silently empty (b64() now fails closed on a
 // missing file at build time; this checks the payloads it does embed aren't
 // near-empty either -- each must clear a real floor size) ----
 {
-  const payloads = [...html.matchAll(/data:(?:image\/png|font\/woff2);base64,([A-Za-z0-9+/=]+)/g)].map(m => m[1]);
-  payloads.length === 4
-    ? ok('found exactly 4 embedded base64 payloads (plate, emblem, 2 font weights)')
-    : bad('found ' + payloads.length + ' embedded base64 payloads, want 4 (plate, emblem, 2 fonts)');
+  const payloads = [...html.matchAll(/data:image\/png;base64,([A-Za-z0-9+/=]+)/g)].map(m => m[1]);
+  payloads.length === 2
+    ? ok('found exactly 2 embedded base64 image payloads (plate, emblem)')
+    : bad('found ' + payloads.length + ' embedded base64 image payloads, want 2 (plate, emblem)');
   payloads.forEach((p, i) => {
     p.length > 1024
       ? ok('embedded asset payload #' + (i + 1) + ' clears the empty-file floor (' + p.length + ' base64 chars)')
@@ -780,7 +786,7 @@ const BU_ICO = 'AAABAAEAEBAQAAEABAAoAQAAFgAAACgAAAAQAAAAIAAAAAEABAAAAAAAAAAAAAAA
     mkdirSync(join(tmp, 'output'), { recursive: true });
     writeFileSync(join(tmp, 'output', 'cluster_data.json'), JSON.stringify(data));
     mkdirSync(join(tmp, 'cpu', 'assets'), { recursive: true });
-    for (const a of ['bu_plate_white.png', 'faculty_compt_data_sci_signature_toptier_rgb.png', 'WhitneySSmAdvancedSemibold.woff2', 'WhitneySSmAdvancedBook.woff2'])
+    for (const a of ['bu_plate_white.png', 'faculty_compt_data_sci_signature_toptier_rgb.png'])
       writeFileSync(join(tmp, 'cpu', 'assets', a), readFileSync(join(PUB_CPU_CLONE, 'assets', a)));   // the sibling clone's assets, no icon among them
     if (withIcon) { mkdirSync(join(tmp, 'assets')); writeFileSync(join(tmp, 'assets', 'favicon.ico'), readFileSync(join(SDIR, '..', 'assets', 'favicon.ico'))); }
     return tmp;
