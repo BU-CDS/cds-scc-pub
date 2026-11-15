@@ -174,6 +174,14 @@ assert(run(bad) === 1, 'unknown node_class fails'); pass('unknown node_class fai
 bad = clone(goodData); bad.extra_key = 1;
 assert(run(bad) === 1, 'unexpected top-level key fails'); pass('unexpected top-level key fails');
 
+assert(run(goodData, '<html>14,000 core-h reserved; 950 GPU-h reserved; 65 researchers · 30 research groups; <b>320</b>researchers · <b>130</b>research groups</html>') === 0, 'rounded chart figures in html pass');
+pass('rounded chart figures in html pass');
+for (const [html, what] of [
+  ['<html>13,702 core-h reserved</html>', 'reserved hours not at two significant figures'],
+  ['<html><b>3,755</b>GPU-hours in the busiest week</html>', 'busiest-week hours not at two significant figures'],
+  ['<html>64 researchers · 30 research groups</html>', 'a monthly count not rounded to 5'],
+  ['<html><b>318</b>researchers · <b>130</b>research groups</html>', 'an all-time count not rounded to 10'],
+]) { assert(run(goodData, html) === 1, what + ' fails'); pass(what + ' fails'); }
 assert(run(goodData, '<html>node scc-fix1 was busy</html>') === 1, 'real hostname in html fails');
 pass('real hostname in html fails');
 

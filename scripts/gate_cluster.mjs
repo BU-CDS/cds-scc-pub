@@ -379,6 +379,24 @@ for (const [label, text] of texts) {
   leakScan(LEAK_PROJECT_NAMES, label, 'project name', text, decoded);
 }
 
+// ---- 3. public rounding (2026-11-15): the page shows hours to two significant figures
+// (whole hours under 100), monthly researcher/group counts to the nearest 5 and all-time
+// totals to the nearest 10. Any figure in those phrasings that is not rounded fails. ----
+if (texts.length > 1) {
+  const html = decodeEntities(texts[1][1]);
+  const num = (s) => Number(s.replace(/,/g, ''));
+  const sig2 = (x) => (x < 100 ? Math.round(x) : (p => Math.round(x / p) * p)(10 ** (Math.floor(Math.log10(x)) - 1)));
+  const offSig2 = (x) => sig2(x) !== x;
+  for (const m of html.matchAll(/([\d,]+) (?:core|GPU)-h reserved/g))
+    if (offSig2(num(m[1]))) { bad(`html: unrounded reserved hours: ${m[1]}`); break; }
+  for (const m of html.matchAll(/<b>([\d,]+)<\/b>(?:core|GPU)-hours in the busiest week/g))
+    if (offSig2(num(m[1]))) { bad(`html: unrounded busiest-week hours: ${m[1]}`); break; }
+  for (const m of html.matchAll(/([\d,]+) researchers · ([\d,]+) research groups/g))
+    if (num(m[1]) % 5 || num(m[2]) % 5) { bad(`html: monthly counts not rounded to 5: ${m[1]} / ${m[2]}`); break; }
+  for (const m of html.matchAll(/<b>([\d,]+)<\/b>researchers · <b>([\d,]+)<\/b>research groups/g))
+    if (num(m[1]) % 10 || num(m[2]) % 10) { bad(`html: all-time counts not rounded to 10: ${m[1]} / ${m[2]}`); break; }
+}
+
 if (errs.length) {
   for (const e of errs) console.error('gate_cluster: FAIL ' + e);
   process.exit(1);

@@ -2,8 +2,8 @@
 # (login shell: sources /etc/profile so Lmod's 'module' is defined under cron)
 # refresh_public.sh — regenerate + publish the CDS public cluster page (the
 # CPU + GPU buy-in pool showcase). Quarterly pipeline: strip+combine the sibling
-# emits -> de-id gate -> build the portal-lift page (twin pool panels, period
-# selector, per-pool KPI totals; inline JS) -> structure test -> DOM-shim JS
+# emits -> de-id gate -> build the portal-lift page (twin pool panels, Over-time
+# charts; inline JS for slides and tooltips) -> structure test -> DOM-shim JS
 # execution check -> de-id gate again over the built page -> publish (deploy.sh).
 #
 # Idempotent + flock-guarded (overlapping runs wait for the lock rather than

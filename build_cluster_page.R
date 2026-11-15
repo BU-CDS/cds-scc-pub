@@ -2,20 +2,19 @@
 # build_cluster_page.R — the public showcase: a portal-lift of the two pool
 # builders' own hardware/status panels (design revision of 2026-08-31). Twin
 # pool panels (GPU left, CPU right) render pure CAPACITY -- every square/
-# block fully saturated, no live occupancy, no LIVE/STALE badge -- plus a
-# month-grain period selector and per-pool KPI totals cards recomputed by
-# inline JS from the monthly tables (also server-rendered here for the
-# default trailing-3-month window, so the page means something before/
-# without JS). The old zero-JS rule is dead: this page ships exactly one
-# inline <script>, self-contained -- no fetch/XHR, no storage, no theme
-# machinery -- lifted from cpu-cds-scc/build_cpu_portal.R (renderLive(),
-# its KPI card, TIPS, cpuLabel) and gpu-cds-scc/build_gpu_portal.R
-# (livePanel(), its KPI card, cardGB) as the read-only source of visual
-# truth. Neither sibling repo is written to. R6 (2026-09-01): an "Over
-# time" section under the totals -- three server-rendered slides per pool
-# (Monthly volume / Weekly rhythm / Researchers) as CSS bar columns; the
-# inline script only switches slides, toggles the period highlight and
-# runs a gentle auto-advance.
+# block fully saturated, no live occupancy, no LIVE/STALE badge -- and an
+# "Over time" section under them: two server-rendered slides per pool
+# (Weekly rhythm / Researchers) as CSS bar columns. The page
+# ships one inline <script>, self-contained -- no fetch/XHR, no storage, no
+# embedded data object -- that only switches slides, runs a gentle
+# auto-advance and shows tooltips. The period selector and the per-pool KPI
+# totals cards were removed on 2026-11-15 (too much to share publicly); with
+# them went the page's embedded copy of cluster_data.json, which put every
+# monthly row (failed, wall-killed and idle hours included) in the source. The
+# Monthly volume slide (monthly reserved hours against nominal capacity) went
+# the same day: with the weekly series it let a reader isolate sub-week totals.
+# Visual source of truth: cpu-cds-scc/build_cpu_portal.R and
+# gpu-cds-scc/build_gpu_portal.R, read only.
 #
 # Reads:  output/cluster_data.json          (contract v4, the strip+combine emit)
 # Assets (base64-embedded, read from the sibling clone, never copied in):
@@ -40,7 +39,6 @@ PUB_CPU_CLONE <- Sys.getenv("PUB_CPU_CLONE", "/usr3/bustaff/mhorn/repos/cpu-cds-
 
 dataf <- file.path(ROOT, "output", "cluster_data.json")
 stopifnot(file.exists(dataf))
-data_json <- paste(readLines(dataf, warn = FALSE), collapse = "\n")   # embedded verbatim as the page's DATA
 d <- fromJSON(dataf, simplifyVector = TRUE)
 
 b64 <- function(path) {
@@ -56,8 +54,14 @@ favicon_uri   <- paste0("data:image/x-icon;base64,", b64(file.path(ROOT, "assets
 # ---- helpers ----------------------------------------------------------------
 jround <- function(x) floor(as.numeric(x) + 0.5)   # JS Math.round semantics (round-half-up, x >= 0) so R's server-render and the page's own JS agree bit-for-bit
 fmt    <- function(x) format(jround(as.numeric(x)), big.mark = ",", trim = TRUE, scientific = FALSE)
-fmth   <- function(x) { x <- as.numeric(x); if (is.na(x)) return("—"); if (x <= 0) return("0"); if (x < 1) return("&lt;1"); fmt(x) }
-pct    <- function(num, den) if (!is.na(den) && den > 0) paste0(jround(100 * num / den), "%") else "0%"
+
+# Public rounding (2026-11-15): every figure the Over-time charts show is coarsened before it is
+# drawn, so tooltips, labels and bar heights all carry the rounded value. Hours keep two
+# significant figures (13,702 -> 14,000; under 100, the nearest whole hour); monthly
+# researcher/group counts go to the nearest 5 and the all-time totals to the nearest 10.
+# Half rounds up, matching JS Math.round, so the test and gate mirrors agree exactly.
+round_sig2 <- function(x) { x <- as.numeric(x); if (x < 100) return(jround(x)); p <- 10^(floor(log10(x)) - 1); floor(x / p + 0.5) * p }
+round_to   <- function(x, k) k * floor(as.numeric(x) / k + 0.5)
 
 esc_h <- function(s) { s <- gsub("&", "&amp;", s, fixed = TRUE); gsub("<", "&lt;", s, fixed = TRUE) }
 esc_a <- function(s) { s <- gsub("&", "&amp;", s, fixed = TRUE); s <- gsub("\"", "&quot;", s, fixed = TRUE); gsub("<", "&lt;", s, fixed = TRUE) }
@@ -79,32 +83,14 @@ model_label <- function(x) {
 MON <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 month_label <- function(m) paste0(MON[as.integer(substr(m, 6, 7))], " ", substr(m, 1, 4))
 
-# resolved-range text in the "Totals" section header, e.g. "May – Jul 2026"
-# (year shown once when both ends share a year) or "Jul 2026" for a single
-# month -- no leading separator; it sits right after "Totals" in the title line.
-# Mirrors the page's own JS rangeText() so the SSR default and a JS recompute agree.
+# range text for the "Over time" header, e.g. "May – Jul 2026" (year shown once
+# when both ends share a year) or "Jul 2026" for a single month.
 range_text <- function(months) {
   if (!length(months)) return("")
   a <- months[1]; b <- months[length(months)]
   if (a == b) return(month_label(a))
   a_lbl <- if (substr(a, 1, 4) == substr(b, 1, 4)) MON[as.integer(substr(a, 6, 7))] else month_label(a)
   paste0(a_lbl, " – ", month_label(b))
-}
-
-# Per-card coverage note: the GPU series (trailing ~6 months by design) and the
-# CPU series (full history) rarely cover the same window, so a wide selection
-# ("All months", an early single month) can sum a pool's KPI card over months
-# that pool has no rows for at all -- correct arithmetic, misleading framing
-# (reads as "the pool did nothing" rather than "no data here"). Mirrors the
-# page's own JS coverageNote() so the SSR default and a JS recompute agree.
-# Returns list(note=, empty=): note is a caption ("GPU data: Feb – Jul 2026")
-# shown when the window is only partly covered; empty is TRUE when the pool
-# has no rows anywhere in the window (its KPI tiles are replaced entirely).
-coverage_note <- function(months, pool_months, pool_label) {
-  covered <- intersect(months, pool_months)
-  if (length(covered) == length(months)) return(list(note = "", empty = FALSE))
-  if (length(covered) == 0) return(list(note = "", empty = TRUE))
-  list(note = paste0(pool_label, " data: ", range_text(covered)), empty = FALSE)
 }
 
 # ---- pool panels: one hardware row per capacity.types[] entry. No live data
@@ -158,137 +144,24 @@ growth_note <- function(pool, n) {
 gpu_growth <- growth_note("gpu", d$capacity$gpu$added_12m)
 cpu_growth <- growth_note("cpu", d$capacity$cpu$added_12m)
 
-# ---- KPI totals: sum the monthly tables over a window (a set of "YYYY-MM"
-# strings). Server-rendered here for the default trailing-3-month window
-# (meta.window3) so the page means something before/without JS; the page's
-# own inline JS repeats this arithmetic verbatim to recompute on a period
-# change. The kpi() tile helper is lifted from the portals; the tile set
-# itself is a deliberate revision for this public page -- every tile reads
-# positive/neutral (Reserved, Utilized, Avg efficiency/utilization, Jobs
-# run, Energy used, Mean VRAM in use, Core-h per job), with no
-# negative-connotation counterpart (no Under-/Non-Utilized, no failed/
-# wall-killed shares, no Walltime Accuracy). ----
+# ---- the tables the Over-time slides read. ----
 as_mat <- function(x, ncol) if (is.null(dim(x))) matrix(x, ncol = ncol, byrow = TRUE) else x
-cm <- as_mat(d$cpu_monthly, 9)   # month,node_class,held_h,utilized_h,fail_h,wkill_h,njobs,wa_used_h,wa_req_h
-gm <- as_mat(d$gpu_monthly, 10)  # month,card,held_h,real_h,residle_h,kwh,vram_h,fail_h,wkill_h,njobs
 cmty <- as_mat(d$community, 4)         # window_key,pool,users,groups
-capm <- as_mat(d$capacity_monthly, 3)  # month,pool,cap_h
 wk <- as_mat(d$weekly, 3)   # monday,pool,held_h (contract v4)
 
-# R5.4 lookup/sum: community is looked up by window key (not re-summed --
-# contract v3 already precomputes each pool's distinct-count intersection with
-# its own published months for every selectable period); capacity_monthly is
-# summed over the window's months for that pool. A window with no rows for a
-# pool naturally sums/looks up to 0, matching the coverage-note "no data"
-# replacement above (this pairing never surfaces a live 0/0 tile).
+# community is looked up by window key ("ALL" or "M:YYYY-MM"). No row reads as 0.
 community_for <- function(window_key, pool) {
   idx <- which(cmty[, 1] == window_key & cmty[, 2] == pool)
   if (!length(idx)) return(list(users = 0L, groups = 0L))
   list(users = as.integer(cmty[idx[1], 3]), groups = as.integer(cmty[idx[1], 4]))
 }
-cap_sum_for <- function(months, pool) {
-  idx <- capm[, 2] == pool & capm[, 1] %in% months
-  sum(as.numeric(capm[idx, 3]))
-}
 
-sum_cpu_window <- function(months) {
-  idx <- cm[, 1] %in% months
-  list(held = sum(as.numeric(cm[idx, 3])), utilized = sum(as.numeric(cm[idx, 4])),
-       fail_h = sum(as.numeric(cm[idx, 5])), wkill_h = sum(as.numeric(cm[idx, 6])),
-       njobs = sum(as.numeric(cm[idx, 7])), wa_used_h = sum(as.numeric(cm[idx, 8])), wa_req_h = sum(as.numeric(cm[idx, 9])))
-}
-sum_gpu_window <- function(months) {
-  idx <- gm[, 1] %in% months
-  list(held = sum(as.numeric(gm[idx, 3])), real = sum(as.numeric(gm[idx, 4])), residle_h = sum(as.numeric(gm[idx, 5])),
-       kwh = sum(as.numeric(gm[idx, 6])), vram_h = sum(as.numeric(gm[idx, 7])), fail_h = sum(as.numeric(gm[idx, 8])),
-       wkill_h = sum(as.numeric(gm[idx, 9])), njobs = sum(as.numeric(gm[idx, 10])))
-}
-
-CPU_TIPS <- list(
-  held = "Core-hours reserved by jobs: cores held × hours run.",
-  utilized = "CPU time the jobs consumed.",
-  eff = "Utilized over Reserved.",
-  jobs = "Jobs that ran on the pool in the period.",
-  perjob = "Reserved core-hours per job — the typical reservation size."
-)
-GPU_TIPS <- list(
-  held = "GPU-hours reserved by jobs over the period: GPUs held × hours run.",
-  utilized = "GPU-hours with active kernels, from sampled utilization.",
-  busy = "Utilized over Reserved.",
-  jobs = "Jobs that ran on the pool in the period.",
-  kwh = "Energy from sampled GPU power.",
-  vram = "Mean VRAM in use, as a share of capacity."
-)
-# R5.1: three new tiles lead every totals card, same tooltips on both pools.
-COMMUNITY_TIPS <- list(
-  users = "Distinct researchers who ran at least one job in the period.",
-  groups = "Distinct research groups with at least one job in the period.",
-  cap = "Share of the pool's nominal capacity-hours reserved by jobs. Reserved is not the same as busy — see Avg utilization."
-)
-
-kpi_tile <- function(n, l, t = "") sprintf('<div class="k"%s><div class="kl">%s</div><div class="kn">%s</div></div>',
-                                            if (nzchar(t)) sprintf(' data-tip="%s"', t) else "", l, n)
-
-community_tiles_html <- function(cmty_t, cap_pct) {
-  paste0(
-    kpi_tile(fmt(cmty_t$users), "Researchers served", COMMUNITY_TIPS$users),
-    kpi_tile(fmt(cmty_t$groups), "Research groups", COMMUNITY_TIPS$groups),
-    kpi_tile(cap_pct, "Capacity reserved", COMMUNITY_TIPS$cap)
-  )
-}
-
-cpu_kpi_html <- function(T, cmty_t, cap_pct) {
-  paste0(
-    community_tiles_html(cmty_t, cap_pct),
-    kpi_tile(fmth(T$held), "Reserved core-h", CPU_TIPS$held),
-    kpi_tile(fmth(T$utilized), "Utilized core-h", CPU_TIPS$utilized),
-    kpi_tile(pct(T$utilized, T$held), "Avg efficiency", CPU_TIPS$eff),
-    kpi_tile(fmt(T$njobs), "Jobs run", CPU_TIPS$jobs),
-    kpi_tile(if (T$njobs > 0) fmt(T$held / T$njobs) else "—", "Core-h per job", CPU_TIPS$perjob)
-  )
-}
-gpu_kpi_html <- function(T, cmty_t, cap_pct) {
-  paste0(
-    community_tiles_html(cmty_t, cap_pct),
-    kpi_tile(fmth(T$held), "Reserved GPU-h", GPU_TIPS$held),
-    kpi_tile(fmth(T$real), "Utilized GPU-h", GPU_TIPS$utilized),
-    kpi_tile(pct(T$real, T$held), "Avg utilization", GPU_TIPS$busy),
-    kpi_tile(fmt(T$njobs), "Jobs run", GPU_TIPS$jobs),
-    kpi_tile(fmth(T$kwh), "Energy used (kWh)", GPU_TIPS$kwh),
-    kpi_tile(pct(T$vram_h, T$held), "Mean VRAM in use", GPU_TIPS$vram)
-  )
-}
-
-window3 <- d$meta$window3
-cpu_cov <- coverage_note(window3, d$meta$months_cpu, "CPU")
-gpu_cov <- coverage_note(window3, d$meta$months_gpu, "GPU")
-cpu_t3 <- sum_cpu_window(window3)
-gpu_t3 <- sum_gpu_window(window3)
-cpu_cap3 <- pct(cpu_t3$held, cap_sum_for(window3, "cpu"))
-gpu_cap3 <- pct(gpu_t3$held, cap_sum_for(window3, "gpu"))
-default_cpu_kpi <- if (cpu_cov$empty) '<div class="nodata">No CPU data for this period</div>' else cpu_kpi_html(cpu_t3, community_for("P3", "cpu"), cpu_cap3)
-default_gpu_kpi <- if (gpu_cov$empty) '<div class="nodata">No GPU data for this period</div>' else gpu_kpi_html(gpu_t3, community_for("P3", "gpu"), gpu_cap3)
-default_range <- range_text(window3)
-
-# ---- period controls: a segmented [Past 3 | Past 6 | All] bar (default:
-# Past 3 months, "on") plus a compact month-only <select> for single-month
-# views (neutral "Month…" placeholder, month grain, every published month
-# across CPU+GPU union). ----
 all_months <- sort(unique(c(d$meta$months_cpu, d$meta$months_gpu)))
-month_opts <- paste(vapply(rev(all_months), function(m) sprintf('<option value="%s">%s</option>', m, month_label(m)), character(1)), collapse = "")
-month_select_options <- paste0('<option value="" selected>Month…</option>', month_opts)
 
-# ---- R6 "Over time": three server-rendered slides per pool. The inline script
-# never recomputes a chart -- it only switches slides, toggles the period
-# highlight (.col.on for data-m in the selected window) and runs the
+# ---- R6 "Over time": two server-rendered slides per pool. The inline script
+# never recomputes a chart -- it only switches slides and runs the
 # auto-advance. Marks per R6.6: <= 24 px columns, 2 px surface gap (1 px
 # weekly), 4 px rounded tops, hairline grid, no text in a series colour. ----
-compact <- function(x) {   # 1.41 M / 261 k / 950 (R6.6)
-  x <- as.numeric(x)
-  if (x >= 1e6) return(paste0(sub("\\.?0+$", "", sprintf("%.2f", x / 1e6)), " M"))
-  if (x >= 1e3) return(paste0(jround(x / 1e3), " k"))
-  fmt(x)
-}
 tick_label <- function(x) {   # axis ticks: 150k / 1.2M (no space, one decimal)
   if (x >= 1e6) return(paste0(sub("\\.0$", "", sprintf("%.1f", x / 1e6)), "M"))
   if (x >= 1e3) return(paste0(sub("\\.0$", "", sprintf("%.1f", x / 1e3)), "k"))
@@ -333,48 +206,33 @@ ov_x_weekly <- function(mondays) {   # anchored at the first week whose Monday f
   }
   paste(out, collapse = "")
 }
-ov_col  <- function(m, tip, inner) sprintf('<span class="col%s" data-m="%s" data-tip="%s">%s</span>', if (m %in% window3) " on" else "", m, esc_a(tip), inner)
+ov_col  <- function(tip, inner) sprintf('<span class="col" data-tip="%s">%s</span>', esc_a(tip), inner)
 ov_peak <- function(h_pct, label) sprintf('<em class="pk" style="bottom:calc(%s%% + 2px)">%s</em>', h_pct, label)
-held_for <- function(m, pool) if (pool == "cpu") sum_cpu_window(m)$held else sum_gpu_window(m)$held
-
-ov_vol <- function(pool, months, unit, unit_long) {
-  held <- vapply(months, held_for, numeric(1), pool = pool)
-  cap  <- vapply(months, cap_sum_for, numeric(1), pool = pool)
-  tk <- nice_ticks(max(cap)); peak <- which.max(held)
-  cols <- vapply(seq_along(months), function(i) {
-    hp  <- pc(held[i], tk$top)
-    tip <- sprintf("<b>%s</b><br>%s %s reserved · %s of capacity<br>Nominal capacity %s %s", month_label(months[i]), fmt(held[i]), unit, pct(held[i], cap[i]), fmt(cap[i]), unit)
-    ov_col(months[i], tip, sprintf('<b class="slot"><i class="trk" style="height:%s%%"></i><i class="bar" style="height:%s%%"></i>%s</b>',
-                                   pc(cap[i], tk$top), hp, if (i == peak) ov_peak(hp, fmt(held[i])) else ""))
-  }, character(1))
-  sprintf('<div class="slide" data-s="vol"><div class="cap"><span class="ct">Reserved %s by month<i>reserved (solid) against nominal capacity (faint)</i></span><span class="hero"><b>%s</b>%s reserved since %s</span></div>%s</div>',
-          unit_long, compact(sum(held)), unit_long, month_label(months[1]), ov_plot(tk, cols, ov_x_monthly(months)))
-}
 ov_rhy <- function(pool, unit, unit_long) {
   rows <- wk[wk[, 2] == pool, , drop = FALSE]
-  if (!nrow(rows)) return(sprintf('<div class="slide" data-s="rhy" hidden><div class="cap"><span class="ct">Reserved %s by week</span></div><div class="nodata">No %s data</div></div>', unit_long, toupper(pool)))
-  o <- order(rows[, 1]); mondays <- as.Date(rows[o, 1]); held <- as.numeric(rows[o, 3])
+  if (!nrow(rows)) return(sprintf('<div class="slide" data-s="rhy"><div class="cap"><span class="ct">Reserved %s by week</span></div><div class="nodata">No %s data</div></div>', unit_long, toupper(pool)))
+  o <- order(rows[, 1]); mondays <- as.Date(rows[o, 1]); held <- vapply(as.numeric(rows[o, 3]), round_sig2, numeric(1))
   tk <- nice_ticks(max(held)); peak <- which.max(held)
   cols <- vapply(seq_along(mondays), function(i) {
     hp  <- pc(held[i], tk$top)
     tip <- sprintf("<b>Week of %s</b><br>%s %s reserved", day_label(mondays[i]), fmt(held[i]), unit)
-    ov_col(format(mondays[i] + 3, "%Y-%m"), tip,   # a week belongs to the month of its Thursday (R6.6)
+    ov_col(tip,
            sprintf('<b class="slot"><i class="bar" style="height:%s%%"></i>%s</b>', hp, if (i == peak) ov_peak(hp, fmt(held[i])) else ""))
   }, character(1))
-  sprintf('<div class="slide" data-s="rhy" hidden><div class="cap"><span class="ct">Reserved %s by week<i>complete weeks, %s – %s</i></span><span class="hero"><b>%s</b>%s in the busiest week (%s)</span></div>%s</div>',
+  sprintf('<div class="slide" data-s="rhy"><div class="cap"><span class="ct">Reserved %s by week<i>complete weeks, %s – %s</i></span><span class="hero"><b>%s</b>%s in the busiest week (%s)</span></div>%s</div>',
           unit_long, day_label(mondays[1]), day_label(mondays[length(mondays)] + 6), fmt(held[peak]), unit_long, day_label(mondays[peak]),
           ov_plot(tk, cols, ov_x_weekly(mondays), "wk"))
 }
 ov_com <- function(pool, months) {
   cm_m   <- lapply(paste0("M:", months), community_for, pool = pool)
-  users  <- vapply(cm_m, function(x) as.numeric(x$users), numeric(1))
-  groups <- vapply(cm_m, function(x) as.numeric(x$groups), numeric(1))
-  all_r  <- community_for("ALL", pool)
+  users  <- vapply(cm_m, function(x) round_to(x$users, 5), numeric(1))
+  groups <- vapply(cm_m, function(x) round_to(x$groups, 5), numeric(1))
+  all_r  <- lapply(community_for("ALL", pool), round_to, k = 10)
   tk <- nice_ticks(max(users)); peak <- which.max(users)
   cols <- vapply(seq_along(months), function(i) {
     up  <- pc(users[i], tk$top)
     tip <- sprintf("<b>%s</b><br>%s researchers · %s research groups", month_label(months[i]), fmt(users[i]), fmt(groups[i]))
-    ov_col(months[i], tip, sprintf('<b class="pair"><i class="u" style="height:%s%%"></i><i class="g" style="height:%s%%"></i>%s</b>',
+    ov_col(tip, sprintf('<b class="pair"><i class="u" style="height:%s%%"></i><i class="g" style="height:%s%%"></i>%s</b>',
                                    up, pc(groups[i], tk$top), if (i == peak) ov_peak(up, fmt(users[i])) else ""))
   }, character(1))
   sprintf('<div class="slide" data-s="com" hidden><div class="cap"><span class="ct">Researchers and research groups by month<span class="lg"><i class="u"></i>Researchers<i class="g"></i>Research groups</span></span><span class="hero"><b>%s</b>researchers · <b>%s</b>research groups since %s</span></div>%s</div>',
@@ -383,8 +241,8 @@ ov_com <- function(pool, months) {
 ov_deck <- function(pool) {
   months <- if (pool == "cpu") d$meta$months_cpu else d$meta$months_gpu
   unit <- if (pool == "cpu") "core-h" else "GPU-h"; unit_long <- if (pool == "cpu") "core-hours" else "GPU-hours"
-  sprintf('<div class="deck ov" id="%sov"><h3>%s Activity</h3>%s%s%s</div>', pool, toupper(pool),
-          ov_vol(pool, months, unit, unit_long), ov_rhy(pool, unit, unit_long), ov_com(pool, months))
+  sprintf('<div class="deck ov" id="%sov"><h3>%s Activity</h3>%s%s</div>', pool, toupper(pool),
+          ov_rhy(pool, unit, unit_long), ov_com(pool, months))
 }
 ov_gpu_deck  <- ov_deck("gpu")
 ov_cpu_deck  <- ov_deck("cpu")
@@ -420,15 +278,14 @@ main{max-width:min(var(--content-max),98vw);width:100%;margin:0 auto;padding:14p
 h3{font-size:0.85rem;font-weight:600;color:var(--ink);margin:0 0 10px;}
 .deck{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 12px;margin-bottom:12px;box-shadow:0 1px 3px var(--shadow);}
 .deck h3{font-size:0.8rem;font-weight:700;color:var(--ink);margin:0 0 8px;}
-.pool-gpu h3,.pool-cpu h3,#gpucard h3,#cpucard h3{border-bottom:3px solid;padding-bottom:6px;margin-bottom:10px;}
-.pool-gpu h3,#gpucard h3{border-color:#baf72e;}
-.pool-cpu h3,#cpucard h3{border-color:#4cc9db;}
+.pool-gpu h3,.pool-cpu h3{border-bottom:3px solid;padding-bottom:6px;margin-bottom:10px;}
+.pool-gpu h3{border-color:#baf72e;}
+.pool-cpu h3{border-color:#4cc9db;}
 .pool h3{display:flex;justify-content:space-between;align-items:baseline}
 .hnote{font-weight:400;font-size:0.72rem;color:var(--muted);letter-spacing:0;white-space:nowrap}
 .deckrow{display:flex;gap:16px;align-items:stretch;margin-bottom:12px;}.deckrow .deck{flex:1 1 auto;margin-bottom:0;min-width:0;}
-#gpupanel,#gpucard{flex:0 1 37%;}#cpupanel,#cpucard{flex:1 1 0;}
+#gpupanel{flex:0 1 37%;}#cpupanel{flex:1 1 0;}
 @media(max-width:900px){.deckrow{display:block;}.deckrow .deck{margin-bottom:12px;}.sechead{flex-wrap:wrap;}}
-select{font:inherit;font-size:0.781rem;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);}#pmonth{font-variant-numeric:tabular-nums;}
 .sechead{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--rule);}
 .sechead .ttl{font-size:.8rem;font-weight:700;color:var(--ink);}.sechead .ttl span{font-weight:400;color:var(--muted);margin-left:8px;}
 .sechead .ctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
@@ -441,16 +298,13 @@ select{font:inherit;font-size:0.781rem;padding:3px 6px;border:1px solid var(--bo
 .pool-cpu{--lblw:120px;--valw:60px;--ramw:66px;--core-s:clamp(5px,0.35vw,12px);}.pool-cpu .cnode{display:grid;grid-template-columns:repeat(8,var(--core-s));gap:3px;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);}.pool-cpu .cnode i{width:var(--core-s);height:var(--core-s);border-radius:3px;display:block;background:var(--idle);}.pool-cpu .cnode i.on{background:var(--used);}
 .pool-gpu{--lblw:80px;--valw:56px;--gpu-w:clamp(13px,0.93vw,40px);--gpu-h:clamp(10px,0.47vw,20px);}.pool-gpu .cnode{display:inline-flex;gap:3px;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);}.pool-gpu .cnode i{width:var(--gpu-w);height:var(--gpu-h);border-radius:4px;display:block;background:var(--idle);}.pool-gpu .cnode i.on{background:var(--used);}
 @media(max-width:800px){.pool-gpu .hwcols,.pool-gpu .hwrow{grid-template-columns:1fr var(--valw);}.pool-cpu .hwcols,.pool-cpu .hwrow{grid-template-columns:1fr var(--valw) var(--ramw);}.hwrow{row-gap:4px;}.hwcols .hwnodes{display:none;}.hwrow .hwnodes{grid-column:1/-1;}}   /* phone layout (2026-09-03, explorers d5a2e3f / ede6464): below 800px the label column takes the slack, the Nodes header goes, and each row puts its clusters on a second grid row spanning the card. The fixed columns left the CPU pool no room for its clusters on a phone, so they ran past the card and the page scrolled sideways; the GPU pool stacked one cluster per line */
-@media(min-width:1700px){.pool-cpu{--core-s:clamp(8px,0.5vw,12px);}.pool-gpu{--gpu-w:clamp(22px,1.4vw,40px);--gpu-h:clamp(11px,0.7vw,20px);}.deck{padding:13px 14px;}.kpi .kn{font-size:1.3rem;}}
+@media(min-width:1700px){.pool-cpu{--core-s:clamp(8px,0.5vw,12px);}.pool-gpu{--gpu-w:clamp(22px,1.4vw,40px);--gpu-h:clamp(11px,0.7vw,20px);}.deck{padding:13px 14px;}}
 [data-tip]{cursor:help;}
 #tip{position:fixed;z-index:99;max-width:300px;background:#0f1f3a;color:#eaf1fb;font-size:0.719rem;line-height:1.45;padding:7px 10px;border-radius:6px;box-shadow:0 6px 22px rgba(0,0,0,.28);pointer-events:none;display:none;}#tip b{color:#9ec5ff;font-weight:600;}
-.kpi{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 18px;margin:0;}.kpi .k{padding:0;}
-.kpi .kn{font-size:1.188rem;font-weight:bold;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-.01em;line-height:1.15;}.kpi .kl{font-size:0.688rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;white-space:nowrap;}.kpi .k[data-tip]{cursor:help;}
-.covnote{font-size:0.7rem;color:var(--muted);margin:-4px 0 8px;}.covnote:empty{display:none;margin:0;}
 .nodata{color:var(--muted);font-size:0.8rem;padding:8px 0;grid-column:1/-1;}
 .livewrap{margin:0 0 10px;padding:0;display:flex;flex-wrap:wrap;gap:16px;align-items:center;}
 .liveupd{color:var(--text);font-size:0.75rem;white-space:nowrap;}
-@media(max-width:360px){.seg button{padding:4px 6px;font-size:0.7rem;}.kpi .kl,.liveupd{white-space:normal;}}   /* the narrowest phones (2026-09-03): the three period segments read Past 3 months, Past 6 months, All months and ran over a 320px card as one row; below 360px they tighten and step down a size rather than break the row, and the tile labels and the updated line, nowrap elsewhere, may wrap. Sits after the rules it overrides: a media rule wins by order */
+@media(max-width:360px){.seg button{padding:4px 6px;font-size:0.7rem;}.liveupd{white-space:normal;}}   /* the narrowest phones (2026-09-03): the three period segments ran over a 320px card as one row (the rule now serves the two Over-time slide tabs); below 360px they tighten and step down a size rather than break the row, and the updated line, nowrap elsewhere, may wrap. Sits after the rules it overrides: a media rule wins by order */
 .liveupd a{color:inherit;text-decoration:underline;text-decoration-color:var(--muted);text-underline-offset:2px;}
 .liveupd a:hover{color:var(--used);text-decoration-color:currentColor;}
 .pagefoot{max-width:min(var(--content-max),98vw);width:100%;margin:0 auto;margin-top:auto;padding:18px var(--content-pad) 30px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;}
@@ -460,7 +314,7 @@ select{font:inherit;font-size:0.781rem;padding:3px 6px;border:1px solid var(--bo
 .ft-emblem{height:30px;width:auto;display:block;}
 .ft-link{color:var(--muted);font-size:0.75rem;text-decoration:none;display:inline-flex;align-items:center;}
 @media(max-width:480px){.pagefoot{gap:12px 18px;}.pagefoot .ft-l{min-width:0;}.ft-emblem{height:auto;max-height:30px;max-width:100%;}}   /* phone footer (2026-09-03, explorers 8826c1e / 857212d): the signature is 351px wide at its 30px height and overran the footer cell on a phone; the cell may shrink and the signature scales to fit */
-@media(pointer:coarse){header{padding-top:16px;padding-bottom:16px;}.hbtn,.seg button,select,.ft-link{min-height:40px;}}   /* touch targets (2026-09-03, explorers f245cf1 / 9f7e525): on a coarse pointer the pills, segments, month select and footer links stand at least 40px tall and the header pads out so the pinned pills stay centred. Keyed on the pointer, not the viewport */
+@media(pointer:coarse){header{padding-top:16px;padding-bottom:16px;}.hbtn,.seg button,.ft-link{min-height:40px;}}   /* touch targets (2026-09-03, explorers f245cf1 / 9f7e525): on a coarse pointer the pills, segments and footer links stand at least 40px tall and the header pads out so the pinned pills stay centred. Keyed on the pointer, not the viewport */
 .ft-link:hover{color:var(--used);text-decoration:underline;}
 .ft-gh{color:var(--muted);}
 .ft-gh:hover{color:var(--used);}
@@ -468,7 +322,6 @@ select{font:inherit;font-size:0.781rem;padding:3px 6px;border:1px solid var(--bo
 .slide[hidden]{display:none}
 #gpuov{flex:0 1 37%;}#cpuov{flex:1 1 0;}
 #gpuov h3,#cpuov h3{border-bottom:3px solid;padding-bottom:6px;margin-bottom:10px;}#gpuov h3{border-color:#baf72e;}#cpuov h3{border-color:#4cc9db;}
-.ov{--dim:.5;}
 .ov .cap{display:flex;flex-direction:column;gap:3px;margin:0 0 8px;}
 .ov .ct{font-size:.75rem;font-weight:600;color:var(--text);}.ov .ct>i{font-style:normal;font-weight:400;color:var(--muted);margin-left:8px;}
 .ov .hero{font-size:.72rem;color:var(--muted);white-space:nowrap;}.ov .hero b{font-size:1.25rem;font-weight:600;color:var(--ink);letter-spacing:-.01em;margin-right:5px;}.ov .hero b+b{margin-left:6px;}
@@ -479,10 +332,8 @@ select{font:inherit;font-size:0.781rem;padding:3px 6px;border:1px solid var(--bo
 .ov .cols{position:absolute;inset:0;display:flex;align-items:flex-end;gap:2px;border-bottom:1px solid var(--rule);}.ov .wk .cols{gap:1px;}
 .ov .col{flex:1 1 0;min-width:0;height:100%;display:flex;align-items:flex-end;justify-content:center;cursor:help;}
 .ov .slot,.ov .pair{position:relative;width:100%;max-width:24px;height:100%;}
-.ov .trk{position:absolute;left:0;right:0;bottom:0;background:rgba(11,116,104,.10);border-radius:4px 4px 0 0;}
-.ov .bar{position:absolute;left:0;right:0;bottom:0;background:var(--used);border-radius:4px 4px 0 0;opacity:var(--dim);}.ov .wk .bar{border-radius:2px 2px 0 0;}
-.ov .pair{display:flex;gap:2px;align-items:flex-end;max-width:28px;}.ov .pair i{flex:1 1 0;border-radius:3px 3px 0 0;opacity:var(--dim);}.ov .pair .u{background:var(--used);}.ov .pair .g{background:var(--ember);}
-.ov .col.on .bar,.ov .col.on .pair i,.ov .col:hover .bar,.ov .col:hover .pair i{opacity:1;}
+.ov .bar{position:absolute;left:0;right:0;bottom:0;background:var(--used);border-radius:4px 4px 0 0;}.ov .wk .bar{border-radius:2px 2px 0 0;}
+.ov .pair{display:flex;gap:2px;align-items:flex-end;max-width:28px;}.ov .pair i{flex:1 1 0;border-radius:3px 3px 0 0;}.ov .pair .u{background:var(--used);}.ov .pair .g{background:var(--ember);}
 .ov .pk{position:absolute;left:50%;transform:translateX(-50%);font-size:.62rem;font-style:normal;line-height:1;color:var(--muted);white-space:nowrap;padding-bottom:1px;}
 .ov .xax{grid-column:2;position:relative;height:16px;margin-top:5px;font-size:.65rem;line-height:1;color:var(--muted);}.ov .xax span{position:absolute;top:0;white-space:nowrap;transform:translateX(-50%);}
 .ov .wk .xax span{transform:none;padding-left:4px;border-left:1px solid var(--rule);margin-top:-5px;padding-top:5px;}
@@ -508,36 +359,11 @@ r"-----(</h3>)-----",
 cpu_panel,
 r"-----(</div>
 </div>
-<div class="sechead" id="sechead">
-<div class="ttl">Totals<span id="prange">)-----",
-default_range,
-r"-----(</span></div>
-<div class="ctl">
-<span class="seg"><button id="seg-p3" class="on" data-w="past3">Past 3 months</button><button id="seg-p6" data-w="past6">Past 6 months</button><button id="seg-all" data-w="all">All months</button></span>
-<select id="pmonth" aria-label="Month">)-----",
-month_select_options,
-r"-----(</select>
-</div>
-</div>
-<div class="deckrow">
-<div class="deck" id="gpucard"><h3>GPU Totals</h3><div class="covnote" id="gpu-cov">)-----",
-gpu_cov$note,
-r"-----(</div><div class="kpi" id="kpi-gpu">)-----",
-default_gpu_kpi,
-r"-----(</div></div>
-<div class="deck" id="cpucard"><h3>CPU Totals</h3><div class="covnote" id="cpu-cov">)-----",
-cpu_cov$note,
-r"-----(</div><div class="kpi" id="kpi-cpu">)-----",
-default_cpu_kpi,
-r"-----(</div></div>
-</div>
 <div class="sechead" id="ovhead">
 <div class="ttl">Over time<span>)-----",
 ov_range_all,
-r"-----( · <span id="ovsel">)-----",
-default_range,
-r"-----(</span> highlighted</span></div>
-<div class="ctl"><span class="seg" id="ovtabs"><button class="on" data-s="vol">Monthly volume</button><button data-s="rhy">Weekly rhythm</button><button data-s="com">Researchers</button></span></div>
+r"-----(</span></div>
+<div class="ctl"><span class="seg" id="ovtabs"><button class="on" data-s="rhy">Weekly rhythm</button><button data-s="com">Researchers</button></span></div>
 </div>
 <div class="deckrow">
 )-----",
@@ -551,146 +377,18 @@ r"-----(
 emblem_uri,
 r"-----(" alt="Boston University Faculty of Computing &amp; Data Sciences"></div><div class="ft-c"><a class="ft-link ft-gh" href="https://github.com/BU-CDS/cds-scc-pub" target="_blank" rel="noopener" aria-label="GitHub repository" title="GitHub repository"><svg viewBox="0 0 16 16" width="19" height="19" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg></a></div><div class="ft-r"><a class="ft-link" href="https://www.bu.edu/policies/digital-privacy-statement/" target="_blank" rel="noopener">Privacy Statement</a></div></footer>
 <script>
-const DATA = )-----",
-data_json,
-r"-----(;
 const $=s=>document.querySelector(s);
-function fmt(x){return Math.round(x).toLocaleString('en-US');}
-function fmth(x){if(x==null)return '—';if(x<=0)return '0';if(x<1)return '&lt;1';return Math.round(x).toLocaleString('en-US');}
-const kpi=(n,l,t)=>'<div class=k'+(t?' data-tip="'+t+'"':'')+'><div class=kl>'+l+'</div><div class=kn>'+n+'</div></div>';
-const CPU_TIPS={
- held:'Core-hours reserved by jobs: cores held × hours run.',
- utilized:'CPU time the jobs consumed.',
- eff:'Utilized over Reserved.',
- jobs:'Jobs that ran on the pool in the period.',
- perjob:'Reserved core-hours per job — the typical reservation size.'
-};
-const GPU_TIPS={
- held:'GPU-hours reserved by jobs over the period: GPUs held × hours run.',
- utilized:'GPU-hours with active kernels, from sampled utilization.',
- busy:'Utilized over Reserved.',
- jobs:'Jobs that ran on the pool in the period.',
- kwh:'Energy from sampled GPU power.',
- vram:'Mean VRAM in use, as a share of capacity.'
-};
-const COMMUNITY_TIPS={
- users:'Distinct researchers who ran at least one job in the period.',
- groups:'Distinct research groups with at least one job in the period.',
- cap:'Share of the pool\'s nominal capacity-hours reserved by jobs. Reserved is not the same as busy — see Avg utilization.'
-};
-const ALLM=[...new Set([...DATA.meta.months_cpu,...DATA.meta.months_gpu])].sort();
-function windowFor(v){
-  if(v==='past3')return DATA.meta.window3.slice();
-  if(v==='past6')return ALLM.slice(-6);
-  if(v==='all')return ALLM.slice();
-  return [v];
-}
-function keyFor(v){
-  if(v==='past3')return 'P3';
-  if(v==='past6')return 'P6';
-  if(v==='all')return 'ALL';
-  return 'M:'+v;
-}
-function communityFor(key,pool){
-  for(const r of DATA.community)if(r[0]===key&&r[1]===pool)return{users:r[2],groups:r[3]};
-  return{users:0,groups:0};
-}
-function capForWindow(months,pool){
-  const set=new Set(months);let s=0;
-  for(const r of DATA.capacity_monthly)if(r[1]===pool&&set.has(r[0]))s+=r[2];
-  return s;
-}
-function sumCpu(months){
-  const set=new Set(months);
-  const T={held:0,utilized:0,fail_h:0,wkill_h:0,njobs:0,wa_used_h:0,wa_req_h:0};
-  for(const r of DATA.cpu_monthly){if(!set.has(r[0]))continue;T.held+=r[2];T.utilized+=r[3];T.fail_h+=r[4];T.wkill_h+=r[5];T.njobs+=r[6];T.wa_used_h+=r[7];T.wa_req_h+=r[8];}
-  return T;
-}
-function sumGpu(months){
-  const set=new Set(months);
-  const T={held:0,real:0,residle_h:0,kwh:0,vram_h:0,fail_h:0,wkill_h:0,njobs:0};
-  for(const r of DATA.gpu_monthly){if(!set.has(r[0]))continue;T.held+=r[2];T.real+=r[3];T.residle_h+=r[4];T.kwh+=r[5];T.vram_h+=r[6];T.fail_h+=r[7];T.wkill_h+=r[8];T.njobs+=r[9];}
-  return T;
-}
-function communityTilesHtml(cm,capPct){
-  return kpi(fmt(cm.users),'Researchers served',COMMUNITY_TIPS.users)
-    +kpi(fmt(cm.groups),'Research groups',COMMUNITY_TIPS.groups)
-    +kpi(capPct+'%','Capacity reserved',COMMUNITY_TIPS.cap);
-}
-function cpuKpiHtml(T,cm,capPct){
-  return communityTilesHtml(cm,capPct)
-    +kpi(fmth(T.held),'Reserved core-h',CPU_TIPS.held)
-    +kpi(fmth(T.utilized),'Utilized core-h',CPU_TIPS.utilized)
-    +kpi((T.held?Math.round(100*T.utilized/T.held):0)+'%','Avg efficiency',CPU_TIPS.eff)
-    +kpi(fmt(T.njobs),'Jobs run',CPU_TIPS.jobs)
-    +kpi(T.njobs>0?fmt(T.held/T.njobs):'—','Core-h per job',CPU_TIPS.perjob);
-}
-function gpuKpiHtml(T,cm,capPct){
-  return communityTilesHtml(cm,capPct)
-    +kpi(fmth(T.held),'Reserved GPU-h',GPU_TIPS.held)
-    +kpi(fmth(T.real),'Utilized GPU-h',GPU_TIPS.utilized)
-    +kpi((T.held?Math.round(100*T.real/T.held):0)+'%','Avg utilization',GPU_TIPS.busy)
-    +kpi(fmt(T.njobs),'Jobs run',GPU_TIPS.jobs)
-    +kpi(fmth(T.kwh),'Energy used (kWh)',GPU_TIPS.kwh)
-    +kpi((T.held?Math.round(100*T.vram_h/T.held):0)+'%','Mean VRAM in use',GPU_TIPS.vram);
-}
-const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-function monthLabel(m,withYear){return MON[+m.slice(5,7)-1]+(withYear?' '+m.slice(0,4):'');}
-function rangeText(months){
-  if(!months.length)return '';
-  const a=months[0],b=months[months.length-1];
-  if(a===b)return monthLabel(a,true);
-  const sameYear=a.slice(0,4)===b.slice(0,4);
-  return monthLabel(a,!sameYear)+' – '+monthLabel(b,true);
-}
-function coverageNote(months,poolMonths,poolLabel){
-  const set=new Set(poolMonths);
-  const covered=months.filter(m=>set.has(m));
-  if(covered.length===months.length)return {note:'',empty:false};
-  if(covered.length===0)return {note:'',empty:true};
-  return {note:poolLabel+' data: '+rangeText(covered),empty:false};
-}
-function applyWindow(months,key){
-  const cpuCov=coverageNote(months,DATA.meta.months_cpu,'CPU');
-  const gpuCov=coverageNote(months,DATA.meta.months_gpu,'GPU');
-  $('#cpu-cov').textContent=cpuCov.note;
-  $('#gpu-cov').textContent=gpuCov.note;
-  const cpuT=sumCpu(months),cpuCapH=capForWindow(months,'cpu');
-  const gpuT=sumGpu(months),gpuCapH=capForWindow(months,'gpu');
-  $('#kpi-cpu').innerHTML=cpuCov.empty?'<div class="nodata">No CPU data for this period</div>':cpuKpiHtml(cpuT,communityFor(key,'cpu'),cpuCapH?Math.round(100*cpuT.held/cpuCapH):0);
-  $('#kpi-gpu').innerHTML=gpuCov.empty?'<div class="nodata">No GPU data for this period</div>':gpuKpiHtml(gpuT,communityFor(key,'gpu'),gpuCapH?Math.round(100*gpuT.held/gpuCapH):0);
-  $('#prange').textContent=rangeText(months);
-  ovHighlight(months);
-}
-const SEGS=[['#seg-p3','past3'],['#seg-p6','past6'],['#seg-all','all']];
-SEGS.forEach(([sel])=>{
-  const b=$(sel);
-  b.addEventListener('click',()=>{
-    SEGS.forEach(([s])=>$(s).classList.remove('on'));
-    b.classList.add('on');
-    $('#pmonth').value='';
-    applyWindow(windowFor(b.dataset.w),keyFor(b.dataset.w));
-  });
-});
-$('#pmonth').addEventListener('change',()=>{
-  const v=$('#pmonth').value;
-  if(!v)return;
-  SEGS.forEach(([s])=>$(s).classList.remove('on'));
-  applyWindow(windowFor(v),keyFor(v));
-});
-const OV_ORDER=['vol','rhy','com'];
+const OV_ORDER=['rhy','com'];
 const ovTabs=[...document.querySelectorAll('#ovtabs button')],ovSlides=[...document.querySelectorAll('.ov .slide')];
 let ovCur=0,ovTimer=null,ovStopped=false;
 const ovReduce=!!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 function ovShow(k){ovCur=OV_ORDER.indexOf(k);ovTabs.forEach(b=>b.classList.toggle('on',b.dataset.s===k));ovSlides.forEach(s=>{s.hidden=s.dataset.s!==k;});}
 function ovStop(){if(ovTimer){clearInterval(ovTimer);ovTimer=null;}}
 function ovStart(){if(ovStopped||ovReduce||ovTimer)return;ovTimer=setInterval(()=>ovShow(OV_ORDER[(ovCur+1)%OV_ORDER.length]),10000);}
-function ovHighlight(months){const set=new Set(months);document.querySelectorAll('.ov [data-m]').forEach(el=>el.classList.toggle('on',set.has(el.dataset.m)));const sel=$('#ovsel');if(sel)sel.textContent=rangeText(months);}
 ovTabs.forEach(b=>b.addEventListener('click',()=>{ovStopped=true;ovStop();ovShow(b.dataset.s);}));
 ['#ovhead','#gpuov','#cpuov'].forEach(s=>{const el=$(s);if(!el)return;el.addEventListener('mouseenter',ovStop);el.addEventListener('mouseleave',ovStart);});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)ovStop();else ovStart();});
 {const h=(typeof location==='undefined'?'':(location.hash||'')).slice(1);if(OV_ORDER.includes(h)){ovStopped=true;ovShow(h);}else ovStart();}
-ovHighlight(DATA.meta.window3);
 const tipEl=document.createElement('div');tipEl.id='tip';
 function posTip(x,y){const w=tipEl.offsetWidth,h=tipEl.offsetHeight;let L=x+14,T=y+16;if(L+w>innerWidth-8)L=Math.max(8,x-w-14);if(T+h>innerHeight-8)T=Math.max(8,y-h-16);tipEl.style.left=L+'px';tipEl.style.top=T+'px';}
 function showTip(html,x,y){if(!html){tipEl.style.display='none';return;}tipEl.innerHTML=html;tipEl.style.display='block';posTip(x,y);}

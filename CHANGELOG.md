@@ -2,6 +2,37 @@
 
 All notable changes to the public cluster page.
 
+## 2026-11-15
+
+- **Page: the Over-time figures are rounded before they are drawn** (2026-11-15,
+  `build_cluster_page.R`, `scripts/gate_cluster.mjs`, `scripts/test_page.mjs`,
+  `scripts/test_gate.mjs`): weekly reserved hours keep two significant figures
+  (13,702 -> 14,000; whole hours under 100), monthly researcher and group counts
+  go to the nearest 5 and the all-time totals to the nearest 10. Tooltips, peak
+  labels, the hero figures and the bar heights all use the rounded value, since
+  a bar's height to 0.01% would otherwise give the exact number back. Rounding
+  rather than noise: it does not pretend to be data, and it cannot be averaged
+  away across quarterly releases. The gate now refuses an unrounded figure in
+  those phrasings (the previous page fails it on all four); test_page checks
+  the tooltips and every weekly bar height against the rounded values.
+- **Page: the Totals section is gone, and so is the page's copy of the data**
+  (2026-11-15, `build_cluster_page.R`, `scripts/test_page.mjs`, `deploy.sh`,
+  `refresh_public.sh`, `README.md`): the period selector and the GPU and CPU
+  totals cards were too much to share publicly. The page also embedded all of
+  `cluster_data.json` as `const DATA`, so its source carried every monthly row
+  by node class and card, failed, wall-killed, walltime-accuracy and idle hours
+  included, which no card ever showed. Both are removed, with the coverage
+  notes, the KPI helpers and the Over-time period highlight (it only mirrored
+  the selector; every bar now draws at full opacity). The Monthly volume
+  slide went too: its monthly totals minus the weekly series isolated
+  sub-week activity, and its nominal-capacity track invited a "half idle"
+  reading. Over time keeps Weekly rhythm (now the default) and Researchers.
+  The inline script now
+  only switches slides, runs the auto-advance and shows tooltips. The JSON
+  export and the gate are unchanged. test_page section 5 pins the section, the
+  data object and every internal field name absent. Red-team report:
+  `.review-panel/2026-11-15_1119_public-page-redteam/` (local only).
+
 ## 2026-10-09
 
 - **The gate's host scan no longer reads the repo slug as a hostname** (2026-10-09,

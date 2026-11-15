@@ -12,7 +12,7 @@ PAGE="$ROOT/index.html"
 [ -f "$PAGE" ] || { echo "deploy: no index.html to publish"; exit 1; }
 
 # script guard: the zero-JS rule is dead (design revision of 2026-08-31) -- the page now
-# legitimately ships one inline <script> for period switching + KPI recompute.
+# legitimately ships one inline <script> for the Over-time slides and tooltips.
 # What is still refused, unconditionally (no env var bypasses it): anything
 # that would make the script reach outside the page -- an external request,
 # browser storage, or an externally-sourced script other than the one admitted

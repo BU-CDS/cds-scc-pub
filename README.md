@@ -2,10 +2,9 @@
 
 Public, self-contained page for the CDS buy-in pools on the BU Shared
 Computing Cluster: the CPU pool and the GPU pool side by side — the hardware
-in each (every node and card, drawn at capacity), usage totals for a
-selectable period (default: the trailing three complete months), and three
-over-time charts per pool (monthly volume against capacity, weekly rhythm,
-researchers and groups). One `index.html`, no server. Google Analytics counts
+in each (every node and card, drawn at capacity) and two
+over-time charts per pool (weekly rhythm, researchers and groups), with
+hours rounded to two significant figures and counts to the nearest 5. One `index.html`, no server. Google Analytics counts
 visits under BU's digital privacy statement. Updates quarterly. Two header
 buttons take CDS members to the interactive GPU and CPU explorers (sign-in
 required).
@@ -35,10 +34,12 @@ every step is green:
 2. `scripts/gate_cluster.mjs` — whitelist / blocklist / conservation gate over
    that JSON: every model, card, class and period must be on the allow-list,
    no host names or registry codes anywhere, totals must reconcile (the
-   weekly series against the monthly, the headline against the tables).
-3. `build_cluster_page.R` — renders `index.html` (panels, period selector,
-   totals) with the assets embedded: fonts, plate and emblem from the CPU
-   clone, the favicon from this repo's own `assets/`.
+   weekly series against the monthly, the headline against the tables), and
+   every figure on the built page must carry its public rounding.
+3. `build_cluster_page.R` — renders `index.html` (panels and over-time
+   charts; the JSON itself is not embedded) with the assets embedded:
+   fonts, plate and emblem from the CPU clone, the favicon from this repo's
+   own `assets/`.
 4. `scripts/test_page.mjs` + `validate.mjs` — structure/containment tests and
    a run of the page's inline script under a DOM shim; the gate runs a second
    time over the built HTML.
