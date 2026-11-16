@@ -438,7 +438,7 @@ has(styleBlock, '.liveupd a:hover{color:var(--used);text-decoration-color:curren
 for (const needle of ['@font-face', 'font/woff', 'Whitney'])
   not(html, needle, 'no embedded font: "' + needle + '" appears nowhere in the page');
 
-// ---- 18b. Over-time plots fill the screen on desktop (2026-11-15, docs/design-decisions.md):
+// ---- 18b. Over-time plots fill the screen on desktop (2026-11-15):
 // above 1000px the card row grows into the space left above the footer, capped at 820px ----
 has(styleBlock, '@media(min-width:1000px){main{display:flex;flex-direction:column;}main>.deckrow:has(>.ov){flex:1 1 auto;max-height:820px;}', 'desktop: the Over-time card row grows to fill the screen, capped at 820px');
 has(styleBlock, '.ov .plot{flex:1 1 auto;grid-template-rows:minmax(220px,1fr) auto;}}', 'desktop: Over-time plots stretch with the card, at least 220px');

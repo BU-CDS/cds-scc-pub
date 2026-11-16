@@ -336,7 +336,7 @@ h3{font-size:0.85rem;font-weight:600;color:var(--ink);margin:0 0 10px;}
 .ov .wk .xax span{transform:none;padding-left:4px;border-left:1px solid var(--rule);margin-top:-5px;padding-top:5px;}
 .ov .nodata{padding:8px 0;}
 /* desktop: the Over-time cards take the rest of the screen, so no gap opens above the footer
-   (docs/design-decisions.md, 2026-11-15); plots at least 220px, the card row stops at 820px;
+   (2026-11-15); plots at least 220px, the card row stops at 820px;
    phones and narrow windows keep the fixed 190px plots */
 @media(min-width:1000px){main{display:flex;flex-direction:column;}main>.deckrow:has(>.ov){flex:1 1 auto;max-height:820px;}.ov{display:flex;flex-direction:column;}.ov .slide:not([hidden]){flex:1 1 auto;display:flex;flex-direction:column;}.ov .plot{flex:1 1 auto;grid-template-rows:minmax(220px,1fr) auto;}}
 </style></head><body>
