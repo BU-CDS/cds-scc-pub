@@ -56,6 +56,11 @@ exist, and a run that could push (the default) must be on `main`
 (`PUB_EXPECT_BRANCH` names another branch deliberately). `DEPLOY_PUSH=0`
 stages from any branch.
 
+## Design decisions
+
+Settled layout and chart choices, with the options compared and what would reopen
+each: [docs/design-decisions.md](docs/design-decisions.md).
+
 ## Tests
 
 ```

@@ -189,12 +189,14 @@ ov_plot <- function(tk, cols, xax, cls = "") {
   sprintf('<div class="plot%s">%s<div class="area"><div class="grid">%s</div><div class="cols">%s</div></div><div class="xax">%s</div></div>',
           if (nzchar(cls)) paste0(" ", cls) else "", yax, grid, paste(cols, collapse = ""), xax)
 }
-# x labels at quarter months (Jan/Apr/Jul/Oct); the year on January and on the first label
+# x labels at quarter months (Jan/Apr/Jul/Oct); the year on January and on the first label, set on
+# a second line (<i>) so a year label never runs into its neighbour on a narrow plot
+x_label <- function(m, with_year) if (with_year) paste0(MON[as.integer(substr(m, 6, 7))], "<i> ", substr(m, 1, 4), "</i>") else MON[as.integer(substr(m, 6, 7))]
 ov_x_monthly <- function(months) {
   out <- character(0); n <- length(months)
   for (i in seq_len(n)) {
     mo <- as.integer(substr(months[i], 6, 7)); if (!(mo %in% QUARTER)) next
-    out <- c(out, sprintf('<span style="left:%.2f%%">%s</span>', 100 * (i - 0.5) / n, if (mo == 1L || i == 1L) month_label(months[i]) else MON[mo]))
+    out <- c(out, sprintf('<span style="left:%.2f%%">%s</span>', 100 * (i - 0.5) / n, x_label(months[i], mo == 1L || i == 1L)))
   }
   paste(out, collapse = "")
 }
@@ -203,7 +205,7 @@ ov_x_weekly <- function(mondays) {   # anchored at the first week whose Monday f
   for (i in seq_len(n)) {
     m <- format(mondays[i], "%Y-%m"); mo <- as.integer(substr(m, 6, 7)); same <- identical(m, prev); prev <- m
     if (same || !(mo %in% QUARTER)) next
-    out <- c(out, sprintf('<span style="left:%.2f%%">%s</span>', 100 * (i - 1) / n, if (mo == 1L || first) month_label(m) else MON[mo])); first <- FALSE
+    out <- c(out, sprintf('<span style="left:%.2f%%">%s</span>', 100 * (i - 1) / n, x_label(m, mo == 1L || first))); first <- FALSE
   }
   paste(out, collapse = "")
 }
@@ -319,7 +321,7 @@ h3{font-size:0.85rem;font-weight:600;color:var(--ink);margin:0 0 10px;}
 #gpuov h3,#cpuov h3{border-bottom:3px solid;padding-bottom:6px;margin-bottom:10px;}#gpuov h3{border-color:#baf72e;}#cpuov h3{border-color:#4cc9db;}
 .ov .cap{display:flex;flex-direction:column;gap:3px;margin:0 0 8px;}
 .ov .ct{font-size:.75rem;font-weight:600;color:var(--text);}.ov .ct>i{font-style:normal;font-weight:400;color:var(--muted);margin-left:8px;}
-.ov .hero{font-size:.72rem;color:var(--muted);white-space:nowrap;}.ov .hero b{font-size:1.25rem;font-weight:600;color:var(--ink);letter-spacing:-.01em;margin-right:5px;}.ov .hero b+b{margin-left:6px;}
+.ov .hero{font-size:.72rem;color:var(--muted);}.ov .hero b{font-size:1.25rem;font-weight:600;color:var(--ink);letter-spacing:-.01em;margin-right:5px;}.ov .hero b+b{margin-left:6px;}
 .ov .lg{display:inline-flex;align-items:center;gap:10px;margin-left:10px;font-size:.7rem;font-weight:400;color:var(--muted);}.ov .lg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px;}.ov .lg i.u{background:var(--used);}.ov .lg i.g{background:var(--ember);}
 .ov .plot{display:grid;grid-template-columns:auto 1fr;grid-template-rows:var(--h,190px) auto;column-gap:8px;}
 .ov .yax{position:relative;min-width:26px;font-size:.65rem;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right;}.ov .yax span{position:absolute;right:0;transform:translateY(50%);}
@@ -330,10 +332,13 @@ h3{font-size:0.85rem;font-weight:600;color:var(--ink);margin:0 0 10px;}
 .ov .bar{position:absolute;left:0;right:0;bottom:0;background:var(--used);border-radius:4px 4px 0 0;}.ov .wk .bar{border-radius:2px 2px 0 0;}
 .ov .pair{display:flex;gap:2px;align-items:flex-end;max-width:28px;}.ov .pair i{flex:1 1 0;border-radius:3px 3px 0 0;}.ov .pair .u{background:var(--used);}.ov .pair .g{background:var(--ember);}
 .ov .pk{position:absolute;left:50%;transform:translateX(-50%);font-size:.62rem;font-style:normal;line-height:1;color:var(--muted);white-space:nowrap;padding-bottom:1px;}
-.ov .xax{grid-column:2;position:relative;height:16px;margin-top:5px;font-size:.65rem;line-height:1;color:var(--muted);}.ov .xax span{position:absolute;top:0;white-space:nowrap;transform:translateX(-50%);}
+.ov .xax{grid-column:2;position:relative;height:28px;margin-top:5px;font-size:.65rem;line-height:1;color:var(--muted);}.ov .xax span{position:absolute;top:0;white-space:nowrap;transform:translateX(-50%);}.ov .xax i{display:block;font-style:normal;margin-top:3px;}
 .ov .wk .xax span{transform:none;padding-left:4px;border-left:1px solid var(--rule);margin-top:-5px;padding-top:5px;}
 .ov .nodata{padding:8px 0;}
-@media(min-width:1700px){.ov .plot{--h:220px;}}
+/* desktop: the Over-time cards take the rest of the screen, so no gap opens above the footer
+   (docs/design-decisions.md, 2026-11-15); plots at least 220px, the card row stops at 820px;
+   phones and narrow windows keep the fixed 190px plots */
+@media(min-width:1000px){main{display:flex;flex-direction:column;}main>.deckrow:has(>.ov){flex:1 1 auto;max-height:820px;}.ov{display:flex;flex-direction:column;}.ov .slide:not([hidden]){flex:1 1 auto;display:flex;flex-direction:column;}.ov .plot{flex:1 1 auto;grid-template-rows:minmax(220px,1fr) auto;}}
 </style></head><body>
 <header><div class="hwrap"><h1><img class="buplate" src=")-----",
 plate_uri,

@@ -4,6 +4,22 @@ All notable changes to the public cluster page.
 
 ## 2026-11-15
 
+- **Page: Over-time plots fill the screen on desktop** (2026-11-15,
+  `build_cluster_page.R`, `scripts/test_page.mjs`, `docs/design-decisions.md`,
+  `README.md`): with Totals and Monthly volume gone, a gap opened above the
+  footer (about 280 px at 1920x1200). Above 1000 px the Over-time cards now
+  take the remaining screen height: plots are at least 220 px tall, and the
+  card row stops growing at 820 px. Phones keep the fixed 190 px plots. The
+  1700 px height rule it replaces is gone. The options compared and the
+  reason are in the new decision log, linked from the README.
+- **Page: phones no longer scroll sideways; x-axis labels no longer collide**
+  (2026-11-15, `build_cluster_page.R`, `scripts/test_page.mjs`): the
+  Over-time headline line could not wrap, so at 320 px the CPU line pushed the
+  page to 393 px wide (a WCAG 1.4.10 reflow failure; 390 px also scrolled).
+  It now wraps. The year in an x-axis label ("Apr 2025") ran into the next
+  label on narrow plots, on phones and in the GPU card at 1000 px. It now
+  sits on a second line under the month. Checked at 320, 390, 768 and 1000 px
+  (page width equals window width) and with axe at 320 and 1920 px.
 - **Open items after the red-team, closed** (2026-11-15): a walk through the
   items left after the public-page red-team and the contract 5 merge. (1) The
   CPU growth note counted cores but said nodes; it now says cores (entry

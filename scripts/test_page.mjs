@@ -438,6 +438,19 @@ has(styleBlock, '.liveupd a:hover{color:var(--used);text-decoration-color:curren
 for (const needle of ['@font-face', 'font/woff', 'Whitney'])
   not(html, needle, 'no embedded font: "' + needle + '" appears nowhere in the page');
 
+// ---- 18b. Over-time plots fill the screen on desktop (2026-11-15, docs/design-decisions.md):
+// above 1000px the card row grows into the space left above the footer, capped at 820px ----
+has(styleBlock, '@media(min-width:1000px){main{display:flex;flex-direction:column;}main>.deckrow:has(>.ov){flex:1 1 auto;max-height:820px;}', 'desktop: the Over-time card row grows to fill the screen, capped at 820px');
+has(styleBlock, '.ov .plot{flex:1 1 auto;grid-template-rows:minmax(220px,1fr) auto;}}', 'desktop: Over-time plots stretch with the card, at least 220px');
+has(styleBlock, '.ov .plot{display:grid;grid-template-columns:auto 1fr;grid-template-rows:var(--h,190px) auto;', 'phones keep the fixed 190px plot height');
+
+// ---- 18c. phones (2026-11-15): the headline line may wrap (nowrap pushed a 320px page to 393px,
+// failing WCAG 1.4.10 reflow), and x-axis years sit on a second line so labels never collide ----
+has(styleBlock, '.ov .hero{font-size:.72rem;color:var(--muted);}', 'the Over-time headline line can wrap on a phone');
+has(styleBlock, '.ov .xax i{display:block;', 'x-axis years sit on their own line under the month');
+/<span style="left:[\d.]+%">[A-Z][a-z]{2} \d{4}<\/span>/.test(html)
+  ? bad('an x label carries month and year on one line') : ok('no x label carries month and year on one line');
+
 // ---- 18. embedded assets are never silently empty (b64() now fails closed on a
 // missing file at build time; this checks the payloads it does embed aren't
 // near-empty either -- each must clear a real floor size) ----
@@ -635,7 +648,7 @@ for (const pool of ['gpu', 'cpu']) {
   for (const [name, s, n] of [['rhy', rhy, rc.length], ['com', com, cc.length]]) {
     (s.match(/data-tip="/g) || []).length === n ? ok(P_ + ' ' + name + ': every column has a tooltip and nothing else does') : bad(P_ + ' ' + name + ': tooltip count != column count');
     (s.match(/<em class="pk"/g) || []).length === 1 ? ok(P_ + ' ' + name + ': exactly one peak label') : bad(P_ + ' ' + name + ': peak label count != 1');
-    const first = (s.match(/<div class="xax">.*?<span style="left:[\d.]+%">([^<]+)<\/span>/) || ['', ''])[1];
+    const first = (s.match(/<div class="xax">.*?<span style="left:[\d.]+%">(.*?)<\/span>/) || ['', ''])[1].replace(/<i> (\d{4})<\/i>$/, ' $1');
     /\d{4}$/.test(first) ? ok(P_ + ' ' + name + ': first x label carries a year (' + first + ')') : bad(P_ + ' ' + name + ': first x label lacks a year: "' + first + '"');
     const yax = (s.match(/<div class="yax">([\s\S]*?)<\/div>/) || ['', ''])[1];
     const vals = [...yax.matchAll(/style="bottom:([\d.]+)%">([\d.]+)(k|M)?</g)].filter(m => m[1] !== '0').map(m => Number(m[2]) * (m[3] === 'M' ? 1e6 : m[3] === 'k' ? 1e3 : 1));
